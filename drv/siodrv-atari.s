@@ -68,6 +68,7 @@ BAMLength		= (SIO_BLOCKS+7)/8
 
 .assert OFF_TO_BAM+BAMLength <= OFF_DISK_NAME, error, "BAM overlaps disk name in disk header (SIO_BLOCKS too large)"
 .assert SIO_FIRST_SECTOR+SIO_BLOCKS <= $10000, error, "SIO_BLOCKS too large"
+.assert SIO_UNIT >= 1 .and SIO_UNIT <= 8, error, "SIO_UNIT must be 1-8 (D1:-D8:)"
 
 ;-------------------------------------------------
 _InitForIO:		.word __InitForIO		;9000

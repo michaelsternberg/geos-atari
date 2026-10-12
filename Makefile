@@ -28,13 +28,15 @@ endif
 ASFLAGS      = -I inc -I .
 
 # SIO disk drive (D1:) instead of RAM disk, DeskTop is loaded from GEOS disk image ATR_RESULT
+# SIO_UNIT selects the drive (1 for D1:), SIO_BLOCKS the disk size, non-default values get their own build directory
 ifeq ($(DRIVE), siodrv_atari)
 SIO_BLOCKS  ?= 717
+SIO_UNIT    ?= 1
 ATR_CVT     ?= ramdisk/cvt-128k
-BUILD       := $(BUILD)_sio
+BUILD       := $(BUILD)_sio$(if $(filter-out 1,$(SIO_UNIT)),_d$(SIO_UNIT))$(if $(filter-out 717,$(SIO_BLOCKS)),_$(SIO_BLOCKS))
 XEX_RESULT  := $(XEX_RESULT:.XEX=_SIO.XEX)
 ATR_RESULT   = GEOS_SIO.ATR
-ASFLAGS     += -D SIO_BLOCKS=$(SIO_BLOCKS)
+ASFLAGS     += -D SIO_BLOCKS=$(SIO_BLOCKS) -D SIO_UNIT=$(SIO_UNIT)
 endif
 
 # Atari port only

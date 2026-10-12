@@ -265,7 +265,13 @@ For example a 280K image (only for SIO2PC/FujiNet etc.) with all the files from 
 make SYSTEM=atari320 DRIVE=siodrv_atari SIO_BLOCKS=1120 ATR_CVT=ramdisk/cvt-320k
 ```
 
-Change of `SIO_BLOCKS` needs a clean build (remove the `build/*_sio` directory), make doesn't track that.
+`SIO_UNIT=n` makes GEOS use drive Dn: instead of D1:. Builds with non-default `SIO_BLOCKS` or `SIO_UNIT` go to their own
+directories, e.g. `build/atari_130_sio_d2_1120`.
+
+`tools/mkhwkit.sh` builds a kit for testing on real hardware (FujiNet, XF551) in `build/hwkit`: a bootable MyPicoDos disk with GEOS
+and a sector copier (`tools/geoscopy`) for writing GEOS disk images to real floppies. See `tools/hwkit-README.txt`.
+
+When loading the XEX on real hardware BASIC must be off (hold OPTION while booting).
 
 Disk layout:
 
@@ -275,7 +281,7 @@ Disk layout:
 
 Limitations:
 
-- only one drive (D1:, change `SIO_UNIT` to use another one), no RAM disk at the same time
+- only one drive (D1:, or another one with `SIO_UNIT`), no RAM disk at the same time
 - 19200 baud only, no high speed SIO
 - no single/enhanced density (128 byte sectors) support
 - no write protection detection, writing to a protected disk just fails with a generic error
