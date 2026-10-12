@@ -128,3 +128,20 @@ POKEY_RANDOM	= POKEY+10	; random number generator
 POKEY_SERIN	= POKEY+13	; serial port input
 POKEY_IRQST	= POKEY+14	; interrupt request status
 POKEY_SKSTAT	= POKEY+15	; serial port status
+
+; SIO bus (POKEY serial port + PIA control lines)
+
+PIA_CTL_IDLE	= %00111100	; PACTL: cassette motor off, PBCTL: SIO COMMAND line high (inactive)
+PIA_CTL_CMD	= %00110100	; PBCTL: SIO COMMAND line low (active)
+
+POKEY_SKCTL_KBD	= %00000011	; keyboard debounce and scan enabled, serial idle
+POKEY_SKCTL_RX	= %00010011	; async receive, clocked by channels 3+4
+POKEY_SKCTL_TX	= %00100011	; transmit clocked by channel 4
+
+POKEY_IRQ_KBD	= %11000000	; BREAK key and keyboard
+POKEY_IRQ_SERIN	= %00100000	; serial input data ready
+POKEY_IRQ_SEROR	= %00010000	; serial output data needed
+POKEY_IRQ_SEROC	= %00001000	; serial output transmission finished
+
+POKEY_AUDCTL_SIO= %00101000	; join channels 3+4, channel 3 clocked at 1.79MHz
+POKEY_SIO_19200	= $28		; channel 3+4 divisor for standard 19200 baud

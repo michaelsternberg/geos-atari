@@ -74,8 +74,8 @@ _BRKHandler:					; in principle this is Panic
 _NMIHandler:
 	sta ANTIC_NMIRES			; ack interrupt
 	inc jiffyCounter			; time update
-	bit interrupt_lock
-	beq :+
+	bit interrupt_lock			; $ff when banked RAM is mapped in, test N because A is not loaded here
+	bpl :+
 	rti
 :	pha
 	txa

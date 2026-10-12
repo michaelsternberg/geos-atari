@@ -181,15 +181,15 @@ _ResetHandle:
 	LoadW NMI_VECTOR, _NMIHandler
 	LoadW IRQ_VECTOR, _IRQHandler
 
-	LoadB PIA_PBCTL, %00110000                      ; no interrupts from PIA, PORTB as DDR
+	LoadB PIA_PBCTL, %00111000                      ; no interrupts from PIA, PORTB as DDR, SIO COMMAND inactive
 	LoadB PIA_PORTB, %11111111                      ; all PORTB pins as output
-	LoadB PIA_PBCTL, %00110100                      ; no interrupts from PIA, PORTB as I/O
+	LoadB PIA_PBCTL, PIA_CTL_IDLE                   ; no interrupts from PIA, PORTB as I/O, SIO COMMAND inactive
 	LoadB PIA_PORTB, %10110010                      ; only RAM, main RAM in $4000-$8000 for CPU (ANTIC irrelevant)
 
 	; stop all timers, and disable all (known) interrupts
-	LoadB PIA_PACTL, %00110000                      ; no interrupts from PIA, PORTA as DDR
+	LoadB PIA_PACTL, %00111000                      ; no interrupts from PIA, PORTA as DDR, cassette motor off
 	LoadB PIA_PORTA, %00000000                      ; all PORTA pins as input
-	LoadB PIA_PACTL, %00110100                      ; no interrupts from PIA, PORTA as I/O (joystick I/O)
+	LoadB PIA_PACTL, PIA_CTL_IDLE                   ; no interrupts from PIA, PORTA as I/O (joystick I/O), cassette motor off
 
 	jsr CopyRamBanksUp		; copy detected banks to target location under ROM (also it's cleared if we don't put it into BSS segment)
 

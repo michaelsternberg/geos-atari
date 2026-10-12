@@ -52,17 +52,17 @@ def offset_to_page(offs):
 def offset_to_ts(offs):
 	return page_to_ts(offset_to_page(offs))
 
-def formatImage(image, nbanks, nfiles=8, diskname="RAMDISK", diskid="64"):
+def formatImage(image, npages, nfiles=8, diskname="RAMDISK", diskid="64"):
 	# format:
 	# convert parameters to ascii and trim
 	diskname = bytes(diskname.encode('ascii'))[0:16]
 	diskid = bytes(diskid.encode('ascii'))[0:2]
 	# to make it simple write (ff) into every 2nd byte in a block, no need for clear & write
-	for k in range(1,nbanks*64):
+	for k in range(1,npages):
 		image[k*256+2] = 0xff
 	# init disk header at (1,0)
 	# - disk name+id + $a0 padding
-	# - BAM (according to nbanks)
+	# - BAM (according to npages)
 	# - geos format string
 	# - first directory sector at (1,1) (required because of DESK TOP)
 	#   as many directory sectors as needed to accomodate files
@@ -77,8 +77,10 @@ def formatImage(image, nbanks, nfiles=8, diskname="RAMDISK", diskid="64"):
 	# signature
 	image[OFF_GS_ID:OFF_GS_ID+15] = bytes("GEOS format V1.0".encode("ascii"))
 	# BAM (all free)
-	for k in range(int(nbanks*64/8)):
+	for k in range(int(npages/8)):
 		image[OFF_TO_BAM+k] = 0xff
+	if (npages % 8 != 0):
+		image[OFF_TO_BAM+int(npages/8)] = (1 << (npages % 8)) - 1
 	# link dir head to 1st dir sector at (1,2)
 	image[0] = 1
 	image[1] = 1
@@ -108,6 +110,23 @@ def writeImageChunks(image, nbanks, prefix = "image"):
 		outfile.write(image[k*0x4000:(k+1)*0x4000])
 		outfile.close()
 
+def writeATR(image, npages, outfile):
+	# double density ATR: 3 boot sectors of 128 bytes (unused by GEOS), then GEOS blocks
+	# from (1,0) on as 256-byte sectors starting with sector 4 (see drv/siodrv-atari.s)
+	size = 3*128 + npages*256
+	paragraphs = int(size/16)
+	header = bytearray(16)
+	header[0:2] = [0x96, 0x02]
+	header[2] = paragraphs & 0xff
+	header[3] = (paragraphs >> 8) & 0xff
+	header[4:6] = [0x00, 0x01]		# 256 bytes per sector
+	header[6] = (paragraphs >> 16) & 0xff
+	print(f'writing {outfile} with {3+npages} sectors')
+	with open(outfile,"wb") as f:
+		f.write(header)
+		f.write(bytearray(3*128))
+		f.write(image[0:npages*256])
+
 def copyDirEntry(image, nFiles, dirEntry):
 	# directory blocks start on page 1 and there is enough of them to hold all the files
 	offs = 0x100 + nFiles*32 + 2
@@ -122,7 +141,7 @@ def allocateUntilPage(image,lastPage):
 	k = lastPage - 8*fullBytes
 	#  last incomplete byte
 	if (k!=0):
-		image[OFF_TO_BAM+fullBytes] = (0x100 - (1 << k)) & 0xff
+		image[OFF_TO_BAM+fullBytes] &= (0x100 - (1 << k)) & 0xff	# keep bits past the end of disk clear
 
 def writeCVTFile(image,fname,freePage,nFiles):
 	print(f'{fname}')
@@ -204,16 +223,23 @@ parser = argparse.ArgumentParser(description='Build RAM disk image for Atari GEO
 parser.add_argument('files',metavar='FILE.CVT',type=str,nargs='+',help=".cvt files to be copied")
 parser.add_argument('--outfile','-o',metavar='IMAGE',type=str,help="output file name prefix",default="image")
 parser.add_argument('--nbanks','-n',type=int,help="number of memory banks (16K each), 4 for 130XE, 16 for 320K",default=4,choices=[4,16])
+parser.add_argument('--atr',metavar='BLOCKS',type=int,help="write SIO disk ATR image (to IMAGE) with BLOCKS 256-byte GEOS blocks instead of RAM disk chunks, 717 for 180K disk",choices=range(2,1121))
 
 args = parser.parse_args()
 
-args.nbanks = args.nbanks - 1                           # skip bank 0
+if args.atr:
+	npages = args.atr
+	diskname = "SIODISK"
+else:
+	args.nbanks = args.nbanks - 1                           # skip bank 0
+	npages = args.nbanks*64
+	diskname = "RAMDISK"
 
 # mutable buffer to hold the data
-image = bytearray(args.nbanks * 0x4000+1)		# why +1? is that right?
+image = bytearray(0x10000 * 0x100)		# room for 16MB, so files that don't fit can be reported below
 
 # format image and return the first free page for files
-freePage = formatImage(image,args.nbanks,len(args.files))
+freePage = formatImage(image,npages,len(args.files),diskname)
 
 print(f'{len(args.files)} files to import')
 
@@ -224,9 +250,14 @@ for fname in args.files:
 
 print(f'{nFiles} imported')
 
-print(f"last available page is {format(freePage,'04x')} out of {format(args.nbanks*64,'04x')}, {format(args.nbanks*64-freePage,'04x')} sectors remaining")
+print(f"last available page is {format(freePage,'04x')} out of {format(npages,'04x')}, {format(npages-freePage,'04x')} sectors remaining")
+if freePage > npages:
+	raise SystemExit("files don't fit")
 
 allocateUntilPage(image,freePage)
 
-writeImageChunks(image, args.nbanks, args.outfile)
+if args.atr:
+	writeATR(image, npages, args.outfile)
+else:
+	writeImageChunks(image, args.nbanks, args.outfile)
 

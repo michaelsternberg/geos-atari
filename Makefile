@@ -27,10 +27,20 @@ endif
 
 ASFLAGS      = -I inc -I .
 
+# SIO disk drive (D1:) instead of RAM disk, DeskTop is loaded from GEOS disk image ATR_RESULT
+ifeq ($(DRIVE), siodrv_atari)
+SIO_BLOCKS  ?= 717
+ATR_CVT     ?= ramdisk/cvt-128k
+BUILD       := $(BUILD)_sio
+XEX_RESULT  := $(XEX_RESULT:.XEX=_SIO.XEX)
+ATR_RESULT   = GEOS_SIO.ATR
+ASFLAGS     += -D SIO_BLOCKS=$(SIO_BLOCKS)
+endif
+
 # Atari port only
 ifeq ($(VARIANT), atari)
 KERNAL_SOURCES = \
-	drv/ramdrv-atari.s \
+	drv/$(subst _,-,$(DRIVE)).s \
 	input/joydrv_atari_simple.s \
 	kernal/start/start_atari.s \
 	kernal/bswfont/bswfont.s \
@@ -184,7 +194,7 @@ ALL_BINS= \
 	$(BUILD_DIR)/kernal/kernal.bin
 
 ifeq ($(VARIANT), atari)
-all: $(BUILD_DIR)/$(XEX_RESULT)
+all: $(BUILD_DIR)/$(XEX_RESULT) $(if $(ATR_RESULT),$(BUILD_DIR)/$(ATR_RESULT))
 else
 all: $(BUILD_DIR)/$(D64_RESULT)
 endif
@@ -205,6 +215,10 @@ endif
 $(BUILD_DIR)/image00.img:
 	chmod +x tools/mkramdisk.py
 	tools/mkramdisk.py -n $(ATARI_BANKS) -o $(BUILD_DIR)/image $(RAMDISK_CVT)/*
+
+$(BUILD_DIR)/$(ATR_RESULT): tools/mkramdisk.py
+	@mkdir -p $(BUILD_DIR)
+	python3 tools/mkramdisk.py --atr $(SIO_BLOCKS) -o $@ $(ATR_CVT)/*
 
 kernal/hw/ramloader.s: kernal/hw/ramloader.s.in $(BUILD_DIR)/image00.img
 	cat $< | gcc -D __ATARI_BANKS=$(ATARI_BANKS) -D __BUILD_DIR=\"$(BUILD_DIR)\" -E - -o - | sed -e 's/^#/;/g' > $@
