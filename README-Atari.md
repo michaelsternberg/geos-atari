@@ -282,8 +282,13 @@ Disk layout:
 Limitations:
 
 - only one drive (D1:, or another one with `SIO_UNIT`), no RAM disk at the same time
-- 19200 baud only, no high speed SIO
 - no single/enhanced density (128 byte sectors) support
 - no write protection detection, writing to a protected disk just fails with a generic error
+
+High speed SIO: the first transfer asks the drive for its high speed with command `?` at 19200 (as FujiNet and the
+Happy and US Doubler drives answer) and then uses the POKEY divisor it gives; a drive that doesn't answer stays at 19200.
+FujiNet switches the whole bus to the high speed after answering `?`, and back after two command frames it can't read,
+so a command frame without an answer is sent again at the other speed, and back at 19200 the driver asks `?` again.
+With FujiNet-PC at HSIO index 3 on atari800 a 15K application loads in 4.3 s instead of 13.4 s.
 
 To test in an emulator make sure that the SIO patch is disabled (e.g. `atari800 -nopatch`) - otherwise POKEY level code is not used.

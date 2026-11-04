@@ -13,7 +13,14 @@
 ; use tools/mkramdisk.py --atr to create a disk image
 
 ; XXX there is no check for max track/sector in BAM ops
-; XXX there is no check for write protection, there is no high speed SIO
+; XXX there is no check for write protection
+
+; High speed: the first transfer asks the drive for its high speed ('?', as FujiNet and the Happy and
+; US Doubler drives answer) at 19200 and then uses the POKEY divisor it gives; 40 ($28) is 19200 itself,
+; and a drive that doesn't know '?' stays at 19200. FujiNet switches its speed for the whole bus after
+; answering '?', and back after two command frames it can't read (another program's SIO at 19200, say).
+; So a command frame without an answer is sent again at the other speed, and once back at 19200 the
+; next transfer asks '?' again.
 
 ; number of 256-byte sectors used by GEOS, 720-3 for a standard 180K double density disk
 .ifndef SIO_BLOCKS
@@ -40,6 +47,7 @@ SIO_DELAY_T3		= 20			; ACK to data frame sent by computer (min 1000us)
 SIO_CMD_READ		= $52			; 'R'
 SIO_CMD_PUT		= $50			; 'P' - write without verify
 SIO_CMD_WRITE		= $57			; 'W' - write with verify
+SIO_CMD_HSINDEX		= $3f			; '?' - high speed index (a 1-byte data frame)
 
 SIO_ACK			= $41			; 'A'
 SIO_NAK			= $4e			; 'N'
@@ -513,15 +521,60 @@ SioBlock:	STY sioVerify
 		SEI
 		; NMI handler will only count frames, it's needed for timeouts
 		LoadB interrupt_lock, $ff
+		LDA sioDiv			; at 19200 while the drive may have high speed?
+		CMP #POKEY_SIO_19200
+		BNE :+
+		CMP sioHsDiv
+		BEQ :+
+		JSR SioHighSpeed
+:		LoadB sioLen, 0			; 256 bytes
 		LoadB sioRetry, SIO_RETRIES
 @retry:		JSR SioTransfer
 		beqx @done
-		DEC sioRetry
+		CPX #DEV_NOT_FOUND		; no answer: the drive may be at the other speed
+		BNE :+
+		JSR SioToggle
+:		DEC sioRetry
 		BNE @retry
 @done:		JSR SioIdle
 		LoadB interrupt_lock, 0
 		PLP
 @end:		TXA
+		RTS
+
+;---------------------------------------
+; ask the drive for its high speed ('?'), set sioHsDiv and sioDiv to it, or to 19200 without one
+SioHighSpeed:	PushB sioCommand
+		PushB sioVerify
+		PushW r4
+		LoadW r4, sioReply
+		LoadB sioCommand, SIO_CMD_HSINDEX
+		LoadB sioVerify, 0
+		LoadB sioLen, 1
+		LoadB sioRetry, SIO_RETRIES
+@retry:		JSR SioTransfer
+		beqx @got
+		CPX #DEV_NOT_FOUND		; FujiNet still at high speed takes two frames to come back
+		BNE @none			; NAK: no high speed
+		DEC sioRetry
+		BNE @retry
+@none:		LDA #POKEY_SIO_19200
+		BNE :+
+@got:		LDA sioReply
+:		STA sioHsDiv
+		STA sioDiv
+		PopW r4
+		PopB sioVerify
+		PopB sioCommand
+		RTS
+
+;---------------------------------------
+; switch sioDiv between 19200 and high speed, preserves X
+SioToggle:	LDA #POKEY_SIO_19200
+		CMP sioDiv
+		BNE :+
+		LDA sioHsDiv
+:		STA sioDiv
 		RTS
 
 ;---------------------------------------
@@ -561,9 +614,8 @@ SioSector:	LDX #INV_TRACK
 ;---------------------------------------
 ; single attempt of SIO command from sioFrame, returns error code in X
 SioTransfer:
-		; 19200 baud
 		LoadB POKEY_AUDCTL, POKEY_AUDCTL_SIO
-		LoadB POKEY_AUDF3, POKEY_SIO_19200
+		MoveB sioDiv, POKEY_AUDF3	; 19200 or high speed
 		LoadB POKEY_AUDF4, 0
 		LDA #$a0			; pure tone, no volume
 		STA POKEY_AUDC3
@@ -597,8 +649,8 @@ SioTransfer:
 		BNE @end
 
 		LDA sioCommand
-		CMP #SIO_CMD_READ
-		BEQ SioReadData
+		CMP #SIO_CMD_PUT
+		BNE SioReadData			; read or '?'
 
 		; write: send data frame
 		LDY #SIO_DELAY_T3
@@ -643,12 +695,14 @@ SioReadData:	LDX #DAT_CHKSUM_ERR
 		BMI @verify
 		STA (r4),y
 		INY
+		CPY sioLen
 		BNE @loop
 		BEQ @chksum
 @verify:	CMP (r4),y
 		BEQ :+
 		STX sioMismatch			; any nonzero value
 :		INY
+		CPY sioLen
 		BNE @loop
 @chksum:	MoveB sioChksum, sioStatus+1
 		LDA #SIO_TIMEOUT_BYTE
@@ -819,4 +873,8 @@ sioChksum:	.res 1		; checksum of current frame
 sioTxBusy:	.res 1		; $ff if SEROUT got a byte in current frame
 sioTicks:	.res 1		; timeout in frames
 sioJiffy:	.res 1		; last seen frame counter
+sioLen:		.res 1		; bytes in a data frame read, 0 for 256
+sioReply:	.res 1		; the answer to '?'
+sioDiv:		.byte POKEY_SIO_19200	; POKEY divisor in use: 19200 or sioHsDiv
+sioHsDiv:	.byte $ff	; the drive's high speed divisor, $ff before asking
 
