@@ -12,3 +12,4 @@ apps/cc65/*/*.[s,o]
 *.out
 kernal/hw/ramloader.s
 ramdisk/cvt-ignore/*
+__pycache__

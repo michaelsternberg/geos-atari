@@ -178,6 +178,9 @@ all the remaining areas are free to be used by files.
 
 There is only one disk device available: either RAM drive (default) or SIO disk drive (`DRIVE=siodrv_atari`).
 
+A third, a ~16MB SIO disk in one bootable image (`make bigsio`, `DRIVE=siodrv_big_atari`), is in
+[README-BigSIO.md](README-BigSIO.md); programs that use FujiNet's network on it are in geos-fujinet.
+
 A disk driver for SIO devices may use the hardware directly or via ROM code. There are functions *InitForIO* and *DoneForIO* that in GEOS64/128 prepare
 the system for using ROM routines for I/O. GEOS doesn't touch memory in $0200-$03ff. Some of zero-page registers are used by the system, but they can be easily preserved.
 

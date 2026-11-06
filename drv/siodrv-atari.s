@@ -15,44 +15,14 @@
 ; XXX there is no check for max track/sector in BAM ops
 ; XXX there is no check for write protection
 
-; High speed: the first transfer asks the drive for its high speed ('?', as FujiNet and the Happy and
-; US Doubler drives answer) at 19200 and then uses the POKEY divisor it gives; 40 ($28) is 19200 itself,
-; and a drive that doesn't know '?' stays at 19200. FujiNet switches its speed for the whole bus after
-; answering '?', and back after two command frames it can't read (another program's SIO at 19200, say).
-; So a command frame without an answer is sent again at the other speed, and once back at 19200 the
-; next transfer asks '?' again.
-
 ; number of 256-byte sectors used by GEOS, 720-3 for a standard 180K double density disk
 .ifndef SIO_BLOCKS
 SIO_BLOCKS		= 717
 .endif
-; SIO device of GEOS device 8 (1=D1:)
-.ifndef SIO_UNIT
-SIO_UNIT		= 1
-.endif
-
 SIO_FIRST_SECTOR	= 4			; skip over 128-byte boot sectors
-SIO_DEVICE		= $31+SIO_UNIT-1	; SIO device ID for D<SIO_UNIT>:
 
-SIO_RETRIES		= 4			; how many times to repeat failed transfer
-SIO_TIMEOUT_ACK		= 3			; in frames (16ms is required)
-SIO_TIMEOUT_CMPL	= 255			; in frames (drive may need to seek and retry)
-SIO_TIMEOUT_BYTE	= 3			; in frames, between bytes of a data frame
+.include "drv/sio-const.inc"
 
-; delays in scanlines (~64us each)
-SIO_DELAY_T0		= 14			; COMMAND low to command frame (750-1600us)
-SIO_DELAY_T1		= 12			; end of command frame to COMMAND high (650-950us)
-SIO_DELAY_T3		= 20			; ACK to data frame sent by computer (min 1000us)
-
-SIO_CMD_READ		= $52			; 'R'
-SIO_CMD_PUT		= $50			; 'P' - write without verify
-SIO_CMD_WRITE		= $57			; 'W' - write with verify
-SIO_CMD_HSINDEX		= $3f			; '?' - high speed index (a 1-byte data frame)
-
-SIO_ACK			= $41			; 'A'
-SIO_NAK			= $4e			; 'N'
-SIO_COMPLETE		= $43			; 'C'
-SIO_ERROR		= $45			; 'E'
 
 RAM_DIR_TRACK		= 1
 RAM_DIR_SECT_HEAD	= 0
@@ -114,6 +84,11 @@ WriteBuff:		JMP _WriteBuff			;903f
 			JMP GetDOSError 		;9045
 AllocateBlock:		JMP _AllocateBlock		;9048
 ReadLink:		JMP _ReadLink			;904b
+SIO_CALL_SIG:		.byte "SIOC"			;904e
+			.byte 1				;9052
+			JMP SioCall			;9053
+.assert SIO_CALL_SIG = $904e, error, "SIO call entry moved"
+
 
 ;---------------------------------------
 _Get1stDirEntry:
@@ -494,88 +469,8 @@ __GetBlock:	JSR InitForIO
 		JSR ReadBlock
 		JMP DoneWithIO
 ;---------------------------------------
-; there is no banked RAM involved, (r4) is accessed directly
-_ReadLink:
-__ReadBlock:	LDY #0
-		LDA #SIO_CMD_READ
-		BNE SioBlock
-;---------------------------------------
-__WriteBlock:	LDY #0
-		LDA #SIO_CMD_PUT
-		BNE SioBlock
-;---------------------------------------
-; called after WriteBlock (when verifyFlag is set), read back and compare with (r4)
-__VerWriteBlock:
-		LDY #$ff
-		LDA #SIO_CMD_READ
-;---------------------------------------
-; A - SIO command, Y - $ff to compare read data with (r4) instead of storing it
-; r1 - track and sector, r4 - buffer
-; returns error code in X (and A)
-SioBlock:	STY sioVerify
-		STA sioCommand
-		JSR SioSector
-		bnex @end
-		LoadB sioDevice, SIO_DEVICE
-		PHP
-		SEI
-		; NMI handler will only count frames, it's needed for timeouts
-		LoadB interrupt_lock, $ff
-		LDA sioDiv			; at 19200 while the drive may have high speed?
-		CMP #POKEY_SIO_19200
-		BNE :+
-		CMP sioHsDiv
-		BEQ :+
-		JSR SioHighSpeed
-:		LoadB sioLen, 0			; 256 bytes
-		LoadB sioRetry, SIO_RETRIES
-@retry:		JSR SioTransfer
-		beqx @done
-		CPX #DEV_NOT_FOUND		; no answer: the drive may be at the other speed
-		BNE :+
-		JSR SioToggle
-:		DEC sioRetry
-		BNE @retry
-@done:		JSR SioIdle
-		LoadB interrupt_lock, 0
-		PLP
-@end:		TXA
-		RTS
-
-;---------------------------------------
-; ask the drive for its high speed ('?'), set sioHsDiv and sioDiv to it, or to 19200 without one
-SioHighSpeed:	PushB sioCommand
-		PushB sioVerify
-		PushW r4
-		LoadW r4, sioReply
-		LoadB sioCommand, SIO_CMD_HSINDEX
-		LoadB sioVerify, 0
-		LoadB sioLen, 1
-		LoadB sioRetry, SIO_RETRIES
-@retry:		JSR SioTransfer
-		beqx @got
-		CPX #DEV_NOT_FOUND		; FujiNet still at high speed takes two frames to come back
-		BNE @none			; NAK: no high speed
-		DEC sioRetry
-		BNE @retry
-@none:		LDA #POKEY_SIO_19200
-		BNE :+
-@got:		LDA sioReply
-:		STA sioHsDiv
-		STA sioDiv
-		PopW r4
-		PopB sioVerify
-		PopB sioCommand
-		RTS
-
-;---------------------------------------
-; switch sioDiv between 19200 and high speed, preserves X
-SioToggle:	LDA #POKEY_SIO_19200
-		CMP sioDiv
-		BNE :+
-		LDA sioHsDiv
-:		STA sioDiv
-		RTS
+.include "drv/sio-core.inc"
+.include "drv/sio-call.inc"
 
 ;---------------------------------------
 ; convert GEOS track and sector in r1 into SIO sector number in sioAux
@@ -612,224 +507,6 @@ SioSector:	LDX #INV_TRACK
 @end:		RTS
 
 ;---------------------------------------
-; single attempt of SIO command from sioFrame, returns error code in X
-SioTransfer:
-		LoadB POKEY_AUDCTL, POKEY_AUDCTL_SIO
-		MoveB sioDiv, POKEY_AUDF3	; 19200 or high speed
-		LoadB POKEY_AUDF4, 0
-		LDA #$a0			; pure tone, no volume
-		STA POKEY_AUDC3
-		STA POKEY_AUDC4
-
-		; command frame
-		LoadB PIA_PBCTL, PIA_CTL_CMD
-		LDY #SIO_DELAY_T0
-		JSR SioDelay
-		JSR SioSendStart
-		LDY #0
-:		LDA sioFrame,y
-		JSR SioPutByte
-		INY
-		CPY #4
-		BNE :-
-		LDA sioChksum
-		JSR SioPutByte
-		JSR SioSendEnd
-		JSR SioRecvStart		; be ready before the device can answer
-		LDY #SIO_DELAY_T1
-		JSR SioDelay
-		LoadB PIA_PBCTL, PIA_CTL_IDLE
-
-		LDX #DEV_NOT_FOUND		; no answer, no device
-		LDA #SIO_TIMEOUT_ACK
-		JSR SioGetByte
-		BCS @end
-		LDX #INV_TRACK			; NAK - command or sector rejected
-		CMP #SIO_ACK
-		BNE @end
-
-		LDA sioCommand
-		CMP #SIO_CMD_PUT
-		BNE SioReadData			; read or '?'
-
-		; write: send data frame
-		LDY #SIO_DELAY_T3
-		JSR SioDelay
-		JSR SioSendStart
-		LDY #0
-:		LDA (r4),y
-		JSR SioPutByte
-		INY
-		BNE :-
-		LDA sioChksum
-		JSR SioPutByte
-		JSR SioSendEnd
-		JSR SioRecvStart
-		LDX #WR_VER_ERR
-		LDA #SIO_TIMEOUT_ACK		; data frame accepted?
-		JSR SioGetByte
-		BCS @end
-		CMP #SIO_ACK
-		BNE @end
-		LDA #SIO_TIMEOUT_CMPL		; written?
-		JSR SioGetByte
-		BCS @end
-		CMP #SIO_COMPLETE
-		BNE @end
-		LDX #0
-@end:		RTS
-
-SioReadData:	LDX #DAT_CHKSUM_ERR
-		LDA #SIO_TIMEOUT_CMPL		; complete or error, then data frame
-		JSR SioGetByte
-		BCS @end
-		STA sioStatus
-		LDA #0
-		STA sioChksum			; checksum covers only the data
-		STA sioMismatch
-		LDY #0
-@loop:		LDA #SIO_TIMEOUT_BYTE
-		JSR SioGetByte
-		BCS @end
-		BIT sioVerify
-		BMI @verify
-		STA (r4),y
-		INY
-		CPY sioLen
-		BNE @loop
-		BEQ @chksum
-@verify:	CMP (r4),y
-		BEQ :+
-		STX sioMismatch			; any nonzero value
-:		INY
-		CPY sioLen
-		BNE @loop
-@chksum:	MoveB sioChksum, sioStatus+1
-		LDA #SIO_TIMEOUT_BYTE
-		JSR SioGetByte
-		BCS @end
-		CMP sioStatus+1
-		BNE @end
-		LDA POKEY_SKSTAT		; framing error or overrun? (active low)
-		AND #%11000000
-		CMP #%11000000
-		BNE @end
-		LDA sioStatus
-		CMP #SIO_COMPLETE
-		BNE @end
-		LDX #WR_VER_ERR
-		LDA sioMismatch
-		BNE @end
-		LDX #0
-@end:		RTS
-
-;---------------------------------------
-; restore POKEY and PIA state for keyboard scanning, preserves X
-SioIdle:	LoadB POKEY_SKCTL, POKEY_SKCTL_KBD
-		LoadB POKEY_IRQEN, POKEY_IRQ_KBD
-		LoadB PIA_PBCTL, PIA_CTL_IDLE
-		LDA #0
-		STA POKEY_AUDC3
-		STA POKEY_AUDC4
-		STA POKEY_AUDCTL
-		RTS
-
-;---------------------------------------
-; wait Y scanlines
-SioDelay:	STA ANTIC_WSYNC
-		DEY
-		BNE SioDelay
-		RTS
-
-;---------------------------------------
-; prepare POKEY for sending a frame, clear checksum
-SioSendStart:	LDA #POKEY_SKCTL_TX
-		STA POKEY_SKCTL
-		STA POKEY_SKREST
-		LDA #POKEY_IRQ_KBD
-		STA POKEY_IRQEN
-		LDA #POKEY_IRQ_KBD|POKEY_IRQ_SEROR|POKEY_IRQ_SEROC
-		STA POKEY_IRQEN
-		LDA #0
-		STA sioChksum
-		STA sioTxBusy
-		RTS
-
-;---------------------------------------
-; send byte from A, add it to checksum, preserves X and Y
-SioPutByte:	PHA
-		CLC
-		ADC sioChksum
-		ADC #0
-		STA sioChksum
-		BIT sioTxBusy			; first byte goes straight to SEROUT
-		BPL @put
-:		LDA POKEY_IRQST			; wait until previous byte moves to shift register
-		AND #POKEY_IRQ_SEROR
-		BNE :-
-		LDA #POKEY_IRQ_KBD|POKEY_IRQ_SEROC
-		STA POKEY_IRQEN
-		LDA #POKEY_IRQ_KBD|POKEY_IRQ_SEROR|POKEY_IRQ_SEROC
-		STA POKEY_IRQEN
-@put:		PLA
-		STA POKEY_SEROUT
-		LoadB sioTxBusy, $ff
-		RTS
-
-;---------------------------------------
-; wait until the last byte is sent out
-SioSendEnd:
-:		LDA POKEY_IRQST			; last byte moved to shift register
-		AND #POKEY_IRQ_SEROR
-		BNE :-
-:		LDA POKEY_IRQST			; and shifted out
-		AND #POKEY_IRQ_SEROC
-		BNE :-
-		RTS
-
-;---------------------------------------
-; prepare POKEY for receiving bytes
-SioRecvStart:	LDA #POKEY_SKCTL_RX
-		STA POKEY_SKCTL
-		STA POKEY_SKREST
-		LDA #POKEY_IRQ_KBD
-		STA POKEY_IRQEN
-		LDA #POKEY_IRQ_KBD|POKEY_IRQ_SERIN
-		STA POKEY_IRQEN
-		RTS
-
-;---------------------------------------
-; receive byte into A, A on input is timeout in frames
-; returns C=1 on timeout, adds byte to checksum, preserves X and Y
-SioGetByte:	STA sioTicks
-		LDA jiffyCounter
-		STA sioJiffy
-@wait:		LDA POKEY_IRQST
-		AND #POKEY_IRQ_SERIN
-		BEQ @got
-		LDA jiffyCounter
-		CMP sioJiffy
-		BEQ @wait
-		STA sioJiffy
-		DEC sioTicks
-		BNE @wait
-		SEC
-		RTS
-@got:		LDA #POKEY_IRQ_KBD
-		STA POKEY_IRQEN
-		LDA #POKEY_IRQ_KBD|POKEY_IRQ_SERIN
-		STA POKEY_IRQEN
-		LDA POKEY_SERIN
-		PHA
-		CLC
-		ADC sioChksum
-		ADC #0
-		STA sioChksum
-		PLA
-		CLC
-		RTS
-
-;---------------------------------------
 SetBufVector:	LoadW r4, diskBlkBuf
 		RTS
 ;---------------------------------------
@@ -860,21 +537,4 @@ GEOSDiskID:	.byte "GEOS format V1.0",0
 borderFlag:	.res 1		; do we have border directory sector?
 tmpPS:		.res 1		; CPU flags after DoneWithIO
 
-sioFrame:			; command frame, without checksum
-sioDevice:	.res 1
-sioCommand:	.res 1
-sioAux:		.res 2		; sector number
-
-sioVerify:	.res 1		; $ff - compare data with (r4) instead of storing it
-sioMismatch:	.res 1		; nonzero if compare failed
-sioRetry:	.res 1		; remaining attempts
-sioStatus:	.res 2		; complete/error byte, data checksum
-sioChksum:	.res 1		; checksum of current frame
-sioTxBusy:	.res 1		; $ff if SEROUT got a byte in current frame
-sioTicks:	.res 1		; timeout in frames
-sioJiffy:	.res 1		; last seen frame counter
-sioLen:		.res 1		; bytes in a data frame read, 0 for 256
-sioReply:	.res 1		; the answer to '?'
-sioDiv:		.byte POKEY_SIO_19200	; POKEY divisor in use: 19200 or sioHsDiv
-sioHsDiv:	.byte $ff	; the drive's high speed divisor, $ff before asking
-
+.include "drv/sio-vars.inc"

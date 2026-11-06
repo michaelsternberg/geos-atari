@@ -39,6 +39,21 @@ ATR_RESULT   = GEOS_SIO.ATR
 ASFLAGS     += -D SIO_BLOCKS=$(SIO_BLOCKS) -D SIO_UNIT=$(SIO_UNIT)
 endif
 
+# Big SIO disk: one big (~16MB) double density ATR for D1: (FujiNet, or any drive that serves such images),
+# MyPicoDOS boots GEOS from its front (MyDOS part), GEOS uses the rest of it (drv/siodrv-big-atari.s,
+# tools/mkbigatr.py); no RAM disk image in the XEX. BIG_CVT: the files on it, EXTRA_CVT: more (first, after DESK TOP)
+ifeq ($(DRIVE), siodrv_big_atari)
+SIO_UNIT         ?= 1
+SIO_FIRST_SECTOR ?= 369
+BIG_CVT          ?= ramdisk/cvt-320k/*
+EXTRA_CVT        ?=
+BUILD            := $(BUILD)_bigsio
+XEX_RESULT        = GEOS_BIGSIO.XEX
+ATR_RESULT        = GEOS_BIGSIO.ATR
+NO_RAMDISK        = 1
+ASFLAGS          += -D SIO_UNIT=$(SIO_UNIT) -D SIO_FIRST_SECTOR=$(SIO_FIRST_SECTOR)
+endif
+
 # Atari port only
 ifeq ($(VARIANT), atari)
 KERNAL_SOURCES = \
@@ -214,16 +229,39 @@ endif
 .EXPORT_ALL_VARIABLES:
 	export
 
+ifdef NO_RAMDISK
+# the RAM loader still loads a chunk into each bank, make them a byte long
+$(BUILD_DIR)/image00.img:
+	@mkdir -p $(BUILD_DIR)
+	for n in $$(seq 0 $$(($(ATARI_BANKS)-2))); do printf '\0' > $(BUILD_DIR)/image$$(printf %02x $$n).bin; done
+else
 $(BUILD_DIR)/image00.img:
 	chmod +x tools/mkramdisk.py
 	tools/mkramdisk.py -n $(ATARI_BANKS) -o $(BUILD_DIR)/image $(RAMDISK_CVT)/*
+endif
 
+ifeq ($(DRIVE), siodrv_big_atari)
+$(BUILD_DIR)/$(ATR_RESULT): $(BUILD_DIR)/$(XEX_RESULT) tools/mkbigatr.py tools/geosimg.py $(EXTRA_CVT)
+	python3 tools/mkbigatr.py --first $(SIO_FIRST_SECTOR) --xex $(BUILD_DIR)/$(XEX_RESULT) -o $@ \
+	    $(EXTRA_CVT) $(BIG_CVT)
+	python3 tools/geosimg.py check $@
+else
 $(BUILD_DIR)/$(ATR_RESULT): tools/mkramdisk.py
 	@mkdir -p $(BUILD_DIR)
 	python3 tools/mkramdisk.py --atr $(SIO_BLOCKS) -o $@ $(ATR_CVT)/*
+endif
+
+# GEOS on a big SIO disk (README-BigSIO.md)
+bigsio:
+	$(MAKE) DRIVE=siodrv_big_atari
+
+.PHONY: bigsio
 
 kernal/hw/ramloader.s: kernal/hw/ramloader.s.in $(BUILD_DIR)/image00.img
 	cat $< | gcc -D __ATARI_BANKS=$(ATARI_BANKS) -D __BUILD_DIR=\"$(BUILD_DIR)\" -E - -o - | sed -e 's/^#/;/g' > $@
+
+# the SIO drivers share drv/sio-*.inc
+$(BUILD_DIR)/drv/$(subst _,-,$(DRIVE)).o: $(wildcard drv/sio-*.inc)
 
 $(BUILD_DIR)/%.o: %.s
 	@mkdir -p `dirname $@`

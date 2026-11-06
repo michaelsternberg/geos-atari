@@ -1,0 +1,7 @@
+; fstest, GEOS file system test for the big SIO volume, run as DESK TOP
+
+HEADER APPLICATION "DESK TOP" "fstest" "V1.0" {
+dostype USR
+author "geos-atari tests"
+info "File system test for the FujiNet edition's big volume."
+}
