@@ -79,7 +79,15 @@ PrepareXCoordX:
 	sta r3L
 	; whole card distance
 	SubB r3L, r4L
-	rts
+	bne :+
+	; both ends in one card: its bits to keep are both masks', as the last card's (r8L 0: no first card),
+	; for Horizontal/Invert/RecoverLineDo alike (InvertLine got the right mask on the next byte)
+	lda r8L
+	ora r8H
+	sta r8H
+	lda #0
+	sta r8L
+:	rts
 
 ;---------------------------------------------------------------
 ; HorizontalLine                                          $C118
@@ -105,15 +113,8 @@ HLinEnd2:
 	; common part for HorizontalLine and Rectangle
 __HorizontalLineDo:
 	ldy r3L				; left card offset
-	ldx r4L
-	bne :+
-
-	lda r8L
-	ora r8H
-	sta r8H
-	bra @onlyone
-
-:	lda r8L				; need to handle first card bit mask?
+	ldx r4L				; 0: one card, its mask in r8H (__PrepareXCoord)
+	lda r8L				; need to handle first card bit mask?
 	beq @noleft
 					; yes, handle left byte (value already in A)
 	eor #$ff			; reverse screen protection bitmask

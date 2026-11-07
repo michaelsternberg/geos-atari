@@ -95,8 +95,9 @@ readJoystickPort:
 ; to speedup joystick trigger translation
 JoyTrigToggle:
 	.byte %11100000, %11110000
-JoyMouseData:
-	.byte %10000000, %00000000
+JoyMouseData:					; by TRIG0: 0 the button down, 1 up; GEOS's mouseData: bit 7 set is up
+	.byte %00000000, %10000000		; (the other way round, a click came as GEOS let go: geoWrite's
+						; text selection started when the button was let go, and never ended)
 
 
 ;.segment "mouseptr"

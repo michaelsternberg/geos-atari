@@ -32,20 +32,21 @@ ASSERT_NOT_IN_BANK0
 ; we enter here from IRQ with tmpPOKEY_IRQST value in A to check for BREAK (bit7=0) but we don't care
 
 _DoKeyboardScan:
-	; check for shift/control first, keep GEOS mapping
-	; todo: modify by cbm key - ORA #$80 if pressed with CBM as a keyboard shortcut
-	lda POKEY_KBCODE
-	tax
-	and #%11000000		; top 2 bits, 0=pressed
-	sta r1H
+	; this runs in the keyboard IRQ, maybe while the kernal draws or has bank 0 in: no r-registers here (PutChar
+	; works out a character's line from r1H), and interrupt_lock as it was when done
+	lda interrupt_lock
+	pha
 	ldy PIA_PORTB
 	LoadB interrupt_lock, $ff
 	MoveB atari_banks+0, PIA_PORTB	; keyboard maps are in bank 0
-	txa
+	; todo: modify by cbm key - ORA #$80 if pressed with CBM as a keyboard shortcut
+	lda POKEY_KBCODE
 	and #%00111111
 	tax
-	bbsf 6, r1H, @shift
-	bbsf 7, r1H, @ctrl
+	lda POKEY_KBCODE		; check for shift/control first, keep GEOS mapping
+	asl a				; N: bit 6, shift; C: bit 7, control
+	bmi @shift
+	bcs @ctrl
 	; no modifiers
 	lda KbdDecodeTab, x
 	bra :+
@@ -53,8 +54,10 @@ _DoKeyboardScan:
 	bra :+
 @ctrl:	lda KbdDecodeTab_CTRL, x
 :	sty PIA_PORTB			; restore memory config
-	ldy #0
-	sty interrupt_lock
+	tax
+	pla
+	sta interrupt_lock
+	txa
 	cmp #KEY_INVALID
 	bne :+
 	rts
