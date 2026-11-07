@@ -41,9 +41,18 @@ Both SIO disk drivers (`drv/siodrv-atari.s`, `drv/siodrv-big-atari.s`) share the
 and let programs use it for any SIO device (`drv/sio-call.inc`):
 
     $904E  "SIOC"        check first
-    $9052  .byte 1       version
+    $9052  .byte 2       version
     $9053  JMP SioCall   A/X: the address of a 12-byte block like the Atari OS's DCB (device, unit, command,
                          direction/status, buffer, timeout, length, aux1, aux2); returns the status in A
+    $9056  JMP SioBack   (version 2) A/X: a 7-byte block (from, to, count, direction): copies between GEOS's
+                         background screen ($6000-$7FFF, in bank 0 here) and main memory, for printer drivers:
+                         C64 programs print what they drew there
+
+At start-up GEOS sets its date and time from FujiNet's clock (device $45, APETIME, in the time zone set on
+FujiNet's web page; kernal/start/start_atari.s), through this entry; without an answer it keeps its own.
+
+DeskTop's options > BASIC (GEOS's ToBASIC, also where a Panic ends) restarts the Atari, a cold start: it boots
+D1: again (this disk, or FujiNet's CONFIG when FujiNet boots that). BASIC would have nothing to go back to.
 
 The disk's high speed (asked with '?') is used for the other devices too, since FujiNet switches the whole bus;
 a command frame without an answer is sent again at the other speed. A reply shorter than asked for is taken when

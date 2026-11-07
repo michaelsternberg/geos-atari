@@ -59,7 +59,7 @@ def nmi_address(lbl):
 FUJINET_DIR = os.path.expanduser("~/Nextcloud/Projects/computers/atari8/emulators/fujisan-portable/bin/fujinet-pc")
 
 
-def start_fujinet(tmp, disk, hsio, instance, fndir):
+def start_fujinet(tmp, disk, hsio, instance, fndir, ini=()):
     """FujiNet-PC on NetSIO port 9997+instance with a copy of disk in D1: (written back by stop_fujinet)."""
     sd = os.path.join(tmp, "sd")
     os.mkdir(sd)
@@ -80,7 +80,7 @@ def start_fujinet(tmp, disk, hsio, instance, fndir):
         elif section == "[BOIP]" and ln.startswith("port="):
             ln = f"port={9997 + instance}"
         out.append(ln)
-    out += ["", "[Mount1]", "hostslot=1", "path=/disk.atr", "mode=w"]
+    out += ["", "[Mount1]", "hostslot=1", "path=/disk.atr", "mode=w"] + list(ini)
     cfg = os.path.join(tmp, "fnconfig.ini")
     open(cfg, "w").write("\n".join(out) + "\n")
     log = open(os.path.join(tmp, "fujinet.log"), "wb")
@@ -107,9 +107,12 @@ def stop_fujinet(proc, tmp, disk):
 
 
 def run(disk, at, out, lbl=None, fps=50, extra_cmds=None, timeout=900, fujinet=False, hsio=-1, instance=7,
-        fndir=FUJINET_DIR, dump_mem=False, until=None):
+        fndir=FUJINET_DIR, dump_mem=False, until=None, fn_ini=(), before_stop=None, basic=False):
+    """fn_ini: more lines for FujiNet-PC's fnconfig.ini (e.g. a [Printer1] section); before_stop(web_url): called
+    while FujiNet-PC still runs, after atari800 has quit (e.g. to fetch its printer's output); basic: the XL/XE's
+    BASIC there (atari800 -basic; it's switched off, as with OPTION held at power-up, either way)"""
     with tempfile.TemporaryDirectory() as tmp:
-        fn = start_fujinet(tmp, disk, hsio, instance, fndir) if fujinet else None
+        fn = start_fujinet(tmp, disk, hsio, instance, fndir, fn_ini) if fujinet else None
         cfg = os.path.join(tmp, "atari800.cfg")
         src = os.path.expanduser("~/.atari800.cfg")
         lines = open(src).read().splitlines() if os.path.exists(src) else []
@@ -149,13 +152,18 @@ def run(disk, at, out, lbl=None, fps=50, extra_cmds=None, timeout=900, fujinet=F
         with open(script) as stdin, open(os.path.join(tmp, "atari800.log"), "wb") as log:
             media = ["-netsio", str(9997 + instance)] if fujinet else [disk]
             try:
-                subprocess.run(["atari800", "-config", cfg, "-xe", "-pal", "-nobasic", "-nosound",
+                subprocess.run(["atari800", "-config", cfg, "-xe", "-pal", "-basic" if basic else "-nobasic", "-nosound",
                                 "-windowed", "-monitor"] + ([] if fujinet else ["-turbo"]) + media,
                                stdin=stdin, stdout=log, stderr=subprocess.STDOUT, env=env, timeout=timeout)
             except subprocess.TimeoutExpired:
                 print("atari800 timed out", file=sys.stderr)
             finally:
                 if fn:
+                    if before_stop:
+                        try:
+                            before_stop(f"http://127.0.0.1:{8000 + instance}")
+                        except Exception as e:    # the screens and the disk are still wanted
+                            print(f"before_stop: {e}", file=sys.stderr)
                     stop_fujinet(fn, tmp, disk)
                     shutil.copy(os.path.join(tmp, "fujinet.log"), f"{out}-fujinet.log")
         made = []

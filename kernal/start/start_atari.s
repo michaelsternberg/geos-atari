@@ -21,6 +21,7 @@
 
 ; header.s
 .import dateCopy
+.import jiffyCounter
 
 ; irq.s
 .import _IRQHandler
@@ -226,6 +227,8 @@ _ResetHandle:
 
 	jsr InitGEOEnv
 
+	jsr FujiNetTime			; the date and time from FujiNet's clock, if there's an SIO disk driver
+
 	; fake Commodore drive
 	LDY #8
 	STY curDevice
@@ -248,6 +251,54 @@ _ResetHandle:
 	jsr ClrScr
 
 	jmp EnterDeskTop
+
+;---------------------------------------
+; FujiNet's clock (SIO device $45, command $93, APETIME: day, month, year (2 digits), hour, minute, second, in the
+; time zone set on FujiNet's web page) to GEOS's date and time, through the SIO disk drivers' SIO entry
+; (drv/sio-call.inc); left as it is without one, without an answer, or when the answer isn't a date
+SIO_CALL_SIG	= $904e
+SIO_CALL	= $9053
+
+FujiNetTime:
+	ldx #3
+:	lda SIO_CALL_SIG,x
+	cmp @sioc,x
+	bne @no
+	dex
+	bpl :-
+	lda #<@dcb
+	ldx #>@dcb
+	jsr SIO_CALL
+	cmp #1
+	bne @no
+	ldx #5				; each value below its limit
+:	lda @time,x
+	cmp @limit,x
+	bcs @no
+	dex
+	bpl :-
+	lda @time			; day and month from 1
+	beq @no
+	lda @time+1
+	beq @no
+	ldy #5				; day, month, year to year, month, day; then hour, minute, second
+:	ldx @order,y
+	lda @time,x
+	sta year,y
+	dey
+	bpl :-
+	LoadB jiffyCounter, 0
+@no:	rts
+
+@sioc:	.byte "SIOC"
+@dcb:	.byte $45, 1, $93, $40		; FujiNet's clock, APETIME, data from it
+	.word @time
+	.byte 5, 0
+	.word 6
+	.byte 0, 0			; aux1 0: FujiNet's time zone
+@time:	.res 6
+@limit:	.byte 32, 13, 100, 24, 60, 60
+@order:	.byte 2, 1, 0, 3, 4, 5
 
 ;;
 jsr testDiskOps
