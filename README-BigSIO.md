@@ -41,8 +41,12 @@ DESK TOP shows a directory of up to 18 pages of 8 files (144).
 
 ## Two drives
 
-With up to 128 tracks (the default 126) GEOS has a drive B: D2: (`SIO_UNIT`+1), when at start-up its disk is a
-big GEOS volume of the same size (a DOS disk there isn't taken, so GEOS never writes to it). The driver serves
+With up to 128 tracks (the default 126) GEOS has a drive B: D2: (`SIO_UNIT`+1), when its disk is a big GEOS
+volume of the same size (a DOS disk there isn't taken, so GEOS never writes to it). GEOS looks at D2: at start-up
+and each time it returns to DESK TOP (EnterDeskTop: quitting any program), through the driver's entry at $9059:
+a disk mounted in D2: after boot (on FujiNet's web page, say) is drive B after the next program quits, one taken
+out is gone. It puts things as they are at boot (NUMDRV 1, drive B's type), and DESK TOP counts drive B itself
+when it starts. The driver serves
 both: the SIO device follows `curDrive`, and each drive keeps its own BAM in bank 1 (drive A's at $4000, B's at
 $5000). An empty disk for it: `tools/mkbigatr.py --xex GEOS_BIGSIO.XEX --name DATA -o DATA.ATR`.
 
@@ -66,6 +70,8 @@ and let programs use it for any SIO device (`drv/sio-call.inc`):
     $9056  JMP SioBack   (version 2) A/X: a 7-byte block (from, to, count, direction): copies between GEOS's
                          background screen ($6000-$7FFF, in bank 0 here) and main memory, for printer drivers:
                          C64 programs print what they drew there
+    $9059  JMP DriveB    (the big driver, two drives) drive B there or not, as D2:'s disk is now; the kernal's,
+                         at boot and in EnterDeskTop (uses diskBlkBuf)
 
 At start-up GEOS sets its date and time from FujiNet's clock (device $45, APETIME, in the time zone set on
 FujiNet's web page; kernal/start/start_atari.s), through this entry; without an answer it keeps its own.

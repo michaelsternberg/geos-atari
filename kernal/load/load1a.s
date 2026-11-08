@@ -43,6 +43,11 @@ _EnterDeskTop:
 	txs
 	jsr ClrScr
 	jsr _InitMachine
+.ifdef BIG_TRACKS
+.if BIG_TRACKS*32 <= $1000
+	jsr $9059			; the big SIO driver: drive B there or not, now (mounted in D2: after boot, or gone)
+.endif
+.endif
 	MoveB curDrive, TempCurDrive	; we search for desktop on all drives, so remeber the caller drive to restore it later
 	jsr @tryload
 @tryagain:

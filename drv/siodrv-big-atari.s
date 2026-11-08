@@ -132,6 +132,7 @@ SIO_CALL_SIG:		.byte "SIOC"			;904e
 			.byte 2				;9052
 			JMP SioCall			;9053
 			JMP SioBack			;9056
+			JMP DriveB			;9059
 .assert SIO_CALL_SIG = $904e, error, "SIO call entry moved"
 
 
@@ -542,6 +543,47 @@ BamIOBlk:	STA @io+1
 		RTS
 
 BigMagic:	.byte "BIG1", BIG_TRACKS		; OFF_BIG_MAGIC, OFF_BIG_TRACKS
+
+;---------------------------------------
+; drive B (GEOS's drive 9, D<SIO_UNIT+1>:): there when its disk header (the volume's first sector) is a big volume of
+; this size; NUMDRV back to 1, as at boot (DESK TOP counts drive B itself when it starts). The kernal calls it at boot
+; and on EnterDeskTop, so a disk mounted in D2: (or taken out) after boot is seen when DESK TOP starts again.
+; Off drive B when it's gone. Uses diskBlkBuf.
+DriveB:
+.ifdef SIO_TWO_DRIVES
+		LoadB NUMDRV, 1
+		LoadB DriveBDcb+3, $40		; SioCall writes its status and length back into the block: anew each time
+		LoadW DriveBDcb+8, 256
+		lda #<DriveBDcb
+		ldx #>DriveBDcb
+		jsr SioCall
+		cmp #1
+		bne @gone
+		ldx #4
+:		lda diskBlkBuf+OFF_BIG_MAGIC,x
+		cmp BigMagic,x
+		bne @gone
+		dex
+		bpl :-
+		LoadB driveType+1, DRV_1541 | $80
+		rts
+@gone:		LoadB driveType+1, 0
+		lda curDrive
+		cmp #9
+		bne :+
+		lda #8
+		jmp SetDevice
+:
+.endif
+		rts
+
+.ifdef SIO_TWO_DRIVES
+DriveBDcb:	.byte $31, SIO_UNIT+1, 'R', $40	; a sector of D<SIO_UNIT+1>:, into diskBlkBuf
+		.word diskBlkBuf
+		.byte 5, 0
+		.word 256
+		.word SIO_FIRST_SECTOR
+.endif
 
 ;---------------------------------------
 ; make the BAM state and bamHi those of curDrive's; destroys A and X, keeps Y

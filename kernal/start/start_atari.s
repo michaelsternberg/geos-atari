@@ -238,7 +238,7 @@ _ResetHandle:
 
 .ifdef BIG_TRACKS
 .if BIG_TRACKS*32 <= $1000
-	jsr SecondDrive			; the big SIO driver's drive 9, when D2: has a big volume of this size
+	jsr SIO_DRIVE_B			; the big SIO driver's drive 9, when D2: has a big volume of this size
 .endif
 .endif
 	jsr FujiNetTime			; the date and time from FujiNet's clock, if there's an SIO disk driver
@@ -263,6 +263,7 @@ _ResetHandle:
 ; (drv/sio-call.inc); left as it is without one, without an answer, or when the answer isn't a date
 SIO_CALL_SIG	= $904e
 SIO_CALL	= $9053
+SIO_DRIVE_B	= $9059			; the big SIO driver's: drive B there or not (drv/siodrv-big-atari.s)
 
 ; Z=1 when the disk driver has the SIO entry
 HasSioCall:
@@ -276,36 +277,6 @@ HasSioCall:
 :	rts
 @sioc:	.byte "SIOC"
 
-.ifdef BIG_TRACKS
-.if BIG_TRACKS*32 <= $1000
-; drive 9 (D<SIO_UNIT+1>:) when its disk header (the GEOS volume's first sector) is a big volume of the driver's
-; size: a drive with another disk (DOS's) isn't GEOS's, so GEOS doesn't write to it
-SecondDrive:
-	jsr HasSioCall
-	bne @no
-	lda #<@dcb
-	ldx #>@dcb
-	jsr SIO_CALL
-	cmp #1
-	bne @no
-	ldx #4
-:	lda diskBlkBuf+OFF_TO_BAM,x
-	cmp @magic,x
-	bne @no
-	dex
-	bpl :-
-	lda #DRV_1541 | $80
-	sta _driveType+9		; DESK TOP counts it in NUMDRV when it opens the disk
-@no:	rts
-
-@dcb:	.byte $31, SIO_UNIT+1, 'R', $40	; D2: (with SIO_UNIT 1), a sector from it
-	.word diskBlkBuf
-	.byte 5, 0
-	.word 256
-	.word SIO_FIRST_SECTOR
-@magic:	.byte "BIG1", BIG_TRACKS
-.endif
-.endif
 
 FujiNetTime:
 	jsr HasSioCall
