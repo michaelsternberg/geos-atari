@@ -1,4 +1,5 @@
-; Atari SIO disk drive, big volume (up to ~16MB): GEOS 2.0's limit of 255 tracks of 256 sectors
+; Atari SIO disk drive, big volume: BIG_TRACKS tracks of 256 sectors (default 126, ~8MB, an image of under 32768
+; sectors; up to 254, ~16MB, the most SIO sector numbers allow)
 ; FujiNet (or any drive/emulator that serves large double density ATR images, MyDOS style)
 
 ; Filesystem part based on Atari RAM drive by Maciej Witkowiak, 2022
@@ -40,10 +41,8 @@ SIO_FIRST_SECTOR	= 369
 
 .include "drv/sio-const.inc"
 
-.if ($10000 - SIO_FIRST_SECTOR) / 256 > 255
-BIG_TRACKS		= 255
-.else
-BIG_TRACKS		= ($10000 - SIO_FIRST_SECTOR) / 256
+.ifndef BIG_TRACKS
+BIG_TRACKS		= 126			; an image of 32624 sectors with SIO_FIRST_SECTOR 369
 .endif
 BIG_USABLE		= BIG_TRACKS*256 - 256	; less track 18
 BAM_SECTOR		= 2			; first BAM block on track 1
@@ -79,6 +78,8 @@ RAM_DIR_SECT_HEAD	= 0
 
 
 .assert * = $9000, error, "Disk driver not at $9000"
+.assert OFF_BIG_TRACKS = OFF_BIG_MAGIC+4, error, "BamSync compares them as one"
+.assert BIG_TRACKS <= 255, error, "GEOS has at most 255 tracks"
 .assert BIG_TRACKS >= 18, error, "volume too small"
 .assert SIO_FIRST_SECTOR+BIG_TRACKS*256 <= $10000, error, "volume past SIO sector 65535"
 .assert BAM_SECTOR+BAM_BLOCKS <= 255, error, "BAM too large"
@@ -401,7 +402,7 @@ BamOff:		MoveB bamPB, PIA_PORTB
 
 ;---------------------------------------
 ; after reading dirHead: make the BAM in memory match it, returns error code in X
-BamSync:	LDX #3				; a big volume?
+BamSync:	LDX #4				; a big volume, of this size?
 :		LDA curDirHead+OFF_BIG_MAGIC,x
 		CMP BigMagic,x
 		BNE @notbig
@@ -525,7 +526,7 @@ BamIOBlk:	STA @io+1
 		TXA
 		RTS
 
-BigMagic:	.byte "BIG1"
+BigMagic:	.byte "BIG1", BIG_TRACKS		; OFF_BIG_MAGIC, OFF_BIG_TRACKS
 
 FBBBitTab:	.byte $01, $02, $04, $08
 		.byte $10, $20, $40, $80

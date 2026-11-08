@@ -39,19 +39,21 @@ ATR_RESULT   = GEOS_SIO.ATR
 ASFLAGS     += -D SIO_BLOCKS=$(SIO_BLOCKS) -D SIO_UNIT=$(SIO_UNIT)
 endif
 
-# Big SIO disk: one big (~16MB) double density ATR for D1: (FujiNet, or any drive that serves such images),
+# Big SIO disk: one big double density ATR (BIG_TRACKS tracks of 64K: 126, ~8MB; up to 254, ~16MB) for D1: (FujiNet,
+# or any drive that serves such images),
 # MyPicoDOS boots GEOS from its front (MyDOS part), GEOS uses the rest of it (drv/siodrv-big-atari.s,
 # tools/mkbigatr.py); no RAM disk image in the XEX. BIG_CVT: the files on it, EXTRA_CVT: more (first, after DESK TOP)
 ifeq ($(DRIVE), siodrv_big_atari)
 SIO_UNIT         ?= 1
 SIO_FIRST_SECTOR ?= 369
+BIG_TRACKS       ?= 126
 BIG_CVT          ?= ramdisk/cvt-320k/*
 EXTRA_CVT        ?=
 BUILD            := $(BUILD)_bigsio
 XEX_RESULT        = GEOS_BIGSIO.XEX
 ATR_RESULT        = GEOS_BIGSIO.ATR
 NO_RAMDISK        = 1
-ASFLAGS          += -D SIO_UNIT=$(SIO_UNIT) -D SIO_FIRST_SECTOR=$(SIO_FIRST_SECTOR)
+ASFLAGS          += -D SIO_UNIT=$(SIO_UNIT) -D SIO_FIRST_SECTOR=$(SIO_FIRST_SECTOR) -D BIG_TRACKS=$(BIG_TRACKS)
 endif
 
 # Atari port only
@@ -242,7 +244,7 @@ endif
 
 ifeq ($(DRIVE), siodrv_big_atari)
 $(BUILD_DIR)/$(ATR_RESULT): $(BUILD_DIR)/$(XEX_RESULT) tools/mkbigatr.py tools/geosimg.py $(EXTRA_CVT)
-	python3 tools/mkbigatr.py --first $(SIO_FIRST_SECTOR) --xex $(BUILD_DIR)/$(XEX_RESULT) -o $@ \
+	python3 tools/mkbigatr.py --first $(SIO_FIRST_SECTOR) --tracks $(BIG_TRACKS) --xex $(BUILD_DIR)/$(XEX_RESULT) -o $@ \
 	    $(EXTRA_CVT) $(BIG_CVT)
 	python3 tools/geosimg.py check $@
 else

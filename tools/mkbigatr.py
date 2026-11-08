@@ -7,7 +7,7 @@ sectors: booting it loads GEOS (at high speed when FujiNet's HSIO index is set).
 as used, so that a DOS writing to the disk can't touch GEOS's volume. From sector `first` on is a big GEOS volume
 (tools/geosimg.py, drv/siodrv-big-atari.s) with the given .cvt files, DESK TOP first.
 
-    mkbigatr.py --xex GEOS_BIGSIO.XEX -o GEOS_BIGSIO.ATR [--first 369] [--name GEOS] FILE.CVT...
+    mkbigatr.py --xex GEOS_BIGSIO.XEX -o GEOS_BIGSIO.ATR [--first 369] [--tracks 126] [--name GEOS] FILE.CVT...
 """
 
 import argparse
@@ -90,12 +90,14 @@ def front_part(xex, first, last, dir2atr, boot):
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(description="Build a bootable ~16MB GEOS ATR (big SIO disk)")
+    p = argparse.ArgumentParser(description="Build a bootable GEOS ATR (big SIO disk, ~8MB by default)")
     p.add_argument("files", nargs="*", help=".cvt files for the GEOS volume")
     p.add_argument("--xex", required=True, help="GEOS .XEX (make DRIVE=siodrv_big_atari)")
     p.add_argument("-o", "--out", required=True)
     p.add_argument("--first", type=int, default=geosimg.DEFAULT_FIRST,
                    help="first SIO sector of the GEOS volume (the driver's SIO_FIRST_SECTOR)")
+    p.add_argument("--tracks", type=int, default=geosimg.DEFAULT_TRACKS,
+                   help="tracks of 256 blocks (the driver's BIG_TRACKS; default %(default)s, ~8MB, at most 254)")
     p.add_argument("--name", default="GEOS", help="disk name")
     p.add_argument("--dir2atr", default="dir2atr")
     p.add_argument("--boot", default="MyPicoDos406")
@@ -103,7 +105,9 @@ def main(argv=None):
 
     if not DIR_LAST < args.first <= 4096:
         raise SystemExit(f"--first must be {DIR_LAST + 1}..4096")
-    tracks = geosimg.tracks_for(args.first)
+    tracks = args.tracks
+    if not 18 <= tracks <= geosimg.max_tracks(args.first):
+        raise SystemExit(f"--tracks must be 18..{geosimg.max_tracks(args.first)}")
     last = args.first + tracks * 256 - 1
     front = front_part(args.xex, args.first, last, args.dir2atr, args.boot)
 

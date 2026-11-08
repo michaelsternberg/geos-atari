@@ -57,7 +57,10 @@ class GeosError(Exception):
     pass
 
 
-def tracks_for(first):
+DEFAULT_TRACKS = 126    # the driver's default BIG_TRACKS: ~8MB, an image of under 32768 sectors
+
+
+def max_tracks(first):
     return min(255, (0x10000 - first) // 256)
 
 
@@ -505,8 +508,10 @@ def parse_cvt(cvt):
 def load_image(path, first=DEFAULT_FIRST):
     data = open(path, "rb").read()
     n = atr_sectors(data)
-    tracks = tracks_for(first)
     start = atr_offset(first)
+    tracks = data[start + OFF_BIG_TRACKS] if len(data) > start + OFF_BIG_TRACKS else 0     # the volume's header
+    if not 18 <= tracks <= max_tracks(first):
+        tracks = min(max_tracks(first), max(18, (n - first + 1) // 256))                # not one: as the image's size
     vol = Volume(tracks, data[start:start + tracks * 256 * 256])
     return data, vol
 

@@ -1,10 +1,12 @@
 # GEOS on a big SIO disk
 
-One ~16MB double density disk image for D1: (a FujiNet, or any drive or PC program that serves such images): it
+One ~8MB double density disk image for D1: (a FujiNet, or any drive or PC program that serves such images): it
 boots GEOS (MyPicoDOS loads it, at high speed when the drive has one), and GEOS uses the rest of the same image as
-a disk of 15.8MB, GEOS 2.0's limit: 255 tracks of 256 blocks less the boot part.
+a disk of 8000K: 126 tracks of 256 blocks (`BIG_TRACKS`), less track 18. Up to 254 tracks (15.8MB) can be had,
+but DESK TOP's 144 files fill far less than 8MB, and a smaller disk keeps less BAM in memory and reads it faster.
 
     make bigsio                                     # build/atari_130_bigsio/GEOS_BIGSIO.ATR (and .XEX)
+    make bigsio BIG_TRACKS=254                      # ~16MB (after rm -r build/atari_130_bigsio: the driver changes)
     make bigsio EXTRA_CVT="a.cvt b.cvt"             # more files on it (right after DESK TOP)
     make bigsio BIG_CVT="ramdisk/cvt-128k/*"        # other files than ramdisk/cvt-320k's
 
@@ -16,19 +18,21 @@ Weather and the GEOS Store, and the server they talk to.
 ## The disk
 
     sector 1-3        MyPicoDOS 4.06 boot sectors (autorun)     \
-    sector 4-...      GEOS.XEX, the MyDOS VTOC and directory     | a MyDOS disk of 65392 sectors, made by dir2atr;
-    sector 369-65392  the GEOS volume                            / its VTOC has the GEOS volume as in use
+    sector 4-...      GEOS.XEX, the MyDOS VTOC and directory     | a MyDOS disk of 32624 sectors, made by dir2atr;
+    sector 369-32624  the GEOS volume                            / its VTOC has the GEOS volume as in use
 
 It's a MyDOS disk because on a disk this big MyPicoDOS reads sector links as 16 bits: a DOS 2 disk's file numbers
 in them would end GEOS.XEX early.
 
-The GEOS volume (`drv/siodrv-big-atari.s`, `tools/geosimg.py`): 254 tracks of 256 blocks, block (t,s) at sector
-369+(t-1)*256+s (`SIO_FIRST_SECTOR`). To DESK TOP it's a 1541 whose directory is on track 18; the driver maps track
-18 to track 1, so track 18's own blocks are never used. (1,0) is the disk header, (1,1) the first directory
-block, (1,2)-(1,33) the BAM: a bit per block, 32 bytes per track. In place of the 1541's BAM the header holds
-"BIG1", the size, a free block count (CalcBlksFree returns it) and a serial number. The driver keeps the whole
-BAM (8K) in the 130XE's bank 1, reads it when the header shows another disk or serial, and writes the changed BAM
-blocks in PutDirHead; GetDirHead drops changes that weren't written, as GEOS on a 1541 does.
+The GEOS volume (`drv/siodrv-big-atari.s`, `tools/geosimg.py`): 126 tracks of 256 blocks (`BIG_TRACKS`), block
+(t,s) at sector 369+(t-1)*256+s (`SIO_FIRST_SECTOR`). To DESK TOP it's a 1541 whose directory is on track 18; the
+driver maps track 18 to track 1, so track 18's own blocks are never used. (1,0) is the disk header, (1,1) the first
+directory block, (1,2)-(1,17) the BAM (to (1,33) at 254 tracks): a bit per block, 32 bytes per track. In place of
+the 1541's BAM the header holds "BIG1", the size, a free block count (CalcBlksFree returns it) and a serial
+number. The driver keeps the whole BAM (4K; 8K at 254 tracks) in the 130XE's bank 1, reads it when the header
+shows another disk or serial, and writes the changed BAM blocks in PutDirHead; GetDirHead drops changes that
+weren't written, as GEOS on a 1541 does. A disk of another size than the driver was built for isn't taken for a
+big volume (geosimg.py reads the size from the header).
 
     tools/geosimg.py list|check|add|delete|extract IMAGE.ATR ...      the GEOS volume, on the PC
     tools/mkbigatr.py --xex GEOS_BIGSIO.XEX -o DISK.ATR FILE.CVT...    a bootable disk
