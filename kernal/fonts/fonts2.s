@@ -288,6 +288,16 @@ Font_2:
 	lsr r4H
 	ror a
 	lsr a	; divide by 8 and add to r5/r6
+.ifdef atari
+	pha			; FontSpill: the glyph's byte (from 0) at column 40, 0 if it starts there or later
+	eor #$ff
+	sec
+	adc #40			; 40-column
+	bcs :+
+	lda #0
+:	sta FontSpill
+	pla
+.endif
 	clc
 	adc r5L
 	sta r5L
@@ -544,6 +554,12 @@ Font_4:
 	sta (r6),y
 	sta (r5),y
 @1:	iny
+.ifdef atari
+	cpy FontSpill
+	bne :+
+	jsr FontSpillDown
+:
+.endif
 	inx
 	cpx r8L
 	beq @2
@@ -728,10 +744,7 @@ FontPutChar:
 	cmp windowBottom
 	bcc @6
 	bne @7
-@6:	PushB PIA_PORTB
-	MoveB atari_banks+0, PIA_PORTB
-	jsr Font_4
-	PopB PIA_PORTB
+@6:	jsr FontStore
 @7:	lda r5L
 	addv SC_BYTE_WIDTH	; next line
 	sta r5L
@@ -745,4 +758,44 @@ FontPutChar:
 	LoadB interrupt_lock, 0
 @9:	PopB r1H
 	rts
+
+; The C64's screens are cards: past column 39 of a line is the same line of the next card row, 8 lines down. C64
+; programs draw a line twice as wide that way: geoWrite prints a row of 640 dots as two card rows, left and right
+; half (lines 144-151, 152-159), and draws a character that starts in the left half there even if it reaches
+; into the right one. Here a line follows the other: so from column 40 on, r5/r6 move on to 8 lines down (the rest
+; of the 40 bytes, and 7 lines of 40 = 280).
+; the glyph's line to the screens (the background one in bank 0)
+FontStore:
+	PushB PIA_PORTB
+	MoveB atari_banks+0, PIA_PORTB
+	MoveW r5, FontLine	; FontSpillDown moves r5/r6, back after the line
+	MoveB r6H, FontLine+2
+	lda FontSpill
+	bne :+
+	jsr FontSpillDown	; all of it past column 39
+:	jsr Font_4
+	MoveW FontLine, r5
+	MoveB FontLine, r6L
+	MoveB FontLine+2, r6H
+	PopB PIA_PORTB
+	rts
+
+FontSpillDown:
+	lda r5L
+	clc
+	adc #<280
+	sta r5L
+	sta r6L
+	php
+	lda r5H
+	adc #>280
+	sta r5H
+	plp
+	lda r6H
+	adc #>280
+	sta r6H
+	rts
+
+FontSpill:	.byte $ff	; Font_2: the glyph's byte at column 40
+FontLine:	.res 3		; r5, r6H of the line
 
