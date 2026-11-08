@@ -227,9 +227,7 @@ _ResetHandle:
 
 	jsr InitGEOEnv
 
-	jsr FujiNetTime			; the date and time from FujiNet's clock, if there's an SIO disk driver
-
-	; fake Commodore drive
+	; fake Commodore drive (before the SIO calls below: the big SIO driver's device follows curDrive)
 	LDY #8
 	STY curDevice
 	STY curDrive
@@ -237,6 +235,13 @@ _ResetHandle:
 	STA _driveType,y
 	lda #1
 	sta NUMDRV
+
+.ifdef BIG_TRACKS
+.if BIG_TRACKS*32 <= $1000
+	jsr SecondDrive			; the big SIO driver's drive 9, when D2: has a big volume of this size
+.endif
+.endif
+	jsr FujiNetTime			; the date and time from FujiNet's clock, if there's an SIO disk driver
 
 	; XXX this needs to stay here until DoDlgBox is ready to be Panic() call
 	;LoadW BRKVector, _BRKHandler	; InitRam would make this Panic, but we don't have Panic yet
@@ -259,13 +264,52 @@ _ResetHandle:
 SIO_CALL_SIG	= $904e
 SIO_CALL	= $9053
 
-FujiNetTime:
+; Z=1 when the disk driver has the SIO entry
+HasSioCall:
 	ldx #3
 :	lda SIO_CALL_SIG,x
 	cmp @sioc,x
+	bne :+
+	dex
+	bpl :-
+	inx				; X=0, Z=1
+:	rts
+@sioc:	.byte "SIOC"
+
+.ifdef BIG_TRACKS
+.if BIG_TRACKS*32 <= $1000
+; drive 9 (D<SIO_UNIT+1>:) when its disk header (the GEOS volume's first sector) is a big volume of the driver's
+; size: a drive with another disk (DOS's) isn't GEOS's, so GEOS doesn't write to it
+SecondDrive:
+	jsr HasSioCall
+	bne @no
+	lda #<@dcb
+	ldx #>@dcb
+	jsr SIO_CALL
+	cmp #1
+	bne @no
+	ldx #4
+:	lda diskBlkBuf+OFF_TO_BAM,x
+	cmp @magic,x
 	bne @no
 	dex
 	bpl :-
+	lda #DRV_1541 | $80
+	sta _driveType+9		; DESK TOP counts it in NUMDRV when it opens the disk
+@no:	rts
+
+@dcb:	.byte $31, SIO_UNIT+1, 'R', $40	; D2: (with SIO_UNIT 1), a sector from it
+	.word diskBlkBuf
+	.byte 5, 0
+	.word 256
+	.word SIO_FIRST_SECTOR
+@magic:	.byte "BIG1", BIG_TRACKS
+.endif
+.endif
+
+FujiNetTime:
+	jsr HasSioCall
+	bne @no
 	lda #<@dcb
 	ldx #>@dcb
 	jsr SIO_CALL
@@ -290,7 +334,6 @@ FujiNetTime:
 	LoadB jiffyCounter, 0
 @no:	rts
 
-@sioc:	.byte "SIOC"
 @dcb:	.byte $45, 1, $93, $40		; FujiNet's clock, APETIME, data from it
 	.word @time
 	.byte 5, 0

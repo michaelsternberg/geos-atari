@@ -89,6 +89,19 @@ def front_part(xex, first, last, dir2atr, boot):
     return atr
 
 
+# DESK TOP 2.0 takes a drive B only of a 1541's, 1571's or 1581's type (1-3), or any type with a RAM expansion
+# (ramExpSize); the big SIO driver's drives are RAM 1541s ($81). Its check, at its start:
+#     LDA $0D (B's type); CMP #3; BEQ (1581); BCS (not taken: NUMDRV back to 1); CMP $0C (A's type) ...
+# without the BCS, a B of A's type is opened as two 1541s are (SetDevice, OpenDisk)
+DESKTOP_DRIVE_B = (bytes.fromhex("a50dc903f006b017c50c"), bytes.fromhex("a50dc903f006eaeac50c"))
+
+
+def desktop_drive_b(cvt):
+    """DESK TOP's .cvt with drive B taken (DESKTOP_DRIVE_B), or as it is when it isn't the DESK TOP known."""
+    old, new = DESKTOP_DRIVE_B
+    return cvt.replace(old, new) if cvt.count(old) == 1 else cvt
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description="Build a bootable GEOS ATR (big SIO disk, ~8MB by default)")
     p.add_argument("files", nargs="*", help=".cvt files for the GEOS volume")
@@ -118,7 +131,10 @@ def main(argv=None):
             entry, *_ = geosimg.parse_cvt(cvt)
         except geosimg.GeosError as ex:
             raise SystemExit(f"{f}: {ex}")
-        files.append((geosimg.entry_name(entry), f, cvt))
+        name = geosimg.entry_name(entry)
+        if name == "DESK TOP" and args.tracks * 32 <= 0x1000:      # the driver has two drives (SIO_TWO_DRIVES)
+            cvt = desktop_drive_b(cvt)
+        files.append((name, f, cvt))
     files.sort(key=lambda x: (x[0] != "DESK TOP",))       # DESK TOP first, the rest as given
     volid = int.from_bytes(hashlib.sha1(b"".join(c for _, _, c in files) + open(args.xex, "rb").read()).digest()[:2],
                            "little")

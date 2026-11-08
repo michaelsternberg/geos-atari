@@ -39,6 +39,21 @@ big volume (geosimg.py reads the size from the header).
 
 DESK TOP shows a directory of up to 18 pages of 8 files (144).
 
+## Two drives
+
+With up to 128 tracks (the default 126) GEOS has a drive B: D2: (`SIO_UNIT`+1), when at start-up its disk is a
+big GEOS volume of the same size (a DOS disk there isn't taken, so GEOS never writes to it). The driver serves
+both: the SIO device follows `curDrive`, and each drive keeps its own BAM in bank 1 (drive A's at $4000, B's at
+$5000). An empty disk for it: `tools/mkbigatr.py --xex GEOS_BIGSIO.XEX --name DATA -o DATA.ATR`.
+
+DESK TOP 2.0 takes a drive B only of a 1541's, 1571's or 1581's type unless there's a RAM expansion, and these
+drives are RAM 1541s ($81): mkbigatr.py takes out that check (2 bytes, `DESKTOP_DRIVE_B`) when it puts DESK TOP
+on such a disk, and DESK TOP then uses B as it uses a second 1541. Like GEOS's 1541 driver, the driver starts
+the directory at a fixed block ((1,1), as the 1541's (18,1)), not at the one in curDirHead: copying a file to the
+other drive, DESK TOP looks for it there with that drive's dirHead from its own copy, which isn't read yet the
+first time. Tested in atari800 + FujiNet-PC: B's icon and window, a file duplicated on B, one copied from A to B
+(the same blocks on both, both disks checked by geosimg.py).
+
 ## SIO for programs
 
 Both SIO disk drivers (`drv/siodrv-atari.s`, `drv/siodrv-big-atari.s`) share their SIO code (`drv/sio-core.inc`)

@@ -59,11 +59,14 @@ def nmi_address(lbl):
 FUJINET_DIR = os.path.expanduser("~/Nextcloud/Projects/computers/atari8/emulators/fujisan-portable/bin/fujinet-pc")
 
 
-def start_fujinet(tmp, disk, hsio, instance, fndir, ini=()):
-    """FujiNet-PC on NetSIO port 9997+instance with a copy of disk in D1: (written back by stop_fujinet)."""
+def start_fujinet(tmp, disk, hsio, instance, fndir, ini=(), disk2=None):
+    """FujiNet-PC on NetSIO port 9997+instance with a copy of disk in D1: (and of disk2 in D2:; written back by
+    stop_fujinet)."""
     sd = os.path.join(tmp, "sd")
     os.mkdir(sd)
     shutil.copy(disk, os.path.join(sd, "disk.atr"))
+    if disk2:
+        shutil.copy(disk2, os.path.join(sd, "disk2.atr"))
     out = []
     section = None
     for ln in open(os.path.join(fndir, "fnconfig.ini")).read().splitlines():
@@ -80,7 +83,10 @@ def start_fujinet(tmp, disk, hsio, instance, fndir, ini=()):
         elif section == "[BOIP]" and ln.startswith("port="):
             ln = f"port={9997 + instance}"
         out.append(ln)
-    out += ["", "[Mount1]", "hostslot=1", "path=/disk.atr", "mode=w"] + list(ini)
+    out += ["", "[Mount1]", "hostslot=1", "path=/disk.atr", "mode=w"]
+    if disk2:
+        out += ["", "[Mount2]", "hostslot=1", "path=/disk2.atr", "mode=w"]
+    out += list(ini)
     cfg = os.path.join(tmp, "fnconfig.ini")
     open(cfg, "w").write("\n".join(out) + "\n")
     log = open(os.path.join(tmp, "fujinet.log"), "wb")
@@ -94,7 +100,7 @@ def start_fujinet(tmp, disk, hsio, instance, fndir, ini=()):
     return proc
 
 
-def stop_fujinet(proc, tmp, disk):
+def stop_fujinet(proc, tmp, disk, disk2=None):
     import signal
     try:
         os.killpg(proc.pid, signal.SIGTERM)
@@ -104,15 +110,19 @@ def stop_fujinet(proc, tmp, disk):
     import time
     time.sleep(0.5)
     shutil.copy(os.path.join(tmp, "sd", "disk.atr"), disk)
+    if disk2:
+        shutil.copy(os.path.join(tmp, "sd", "disk2.atr"), disk2)
 
 
 def run(disk, at, out, lbl=None, fps=50, extra_cmds=None, timeout=900, fujinet=False, hsio=-1, instance=7,
-        fndir=FUJINET_DIR, dump_mem=False, until=None, fn_ini=(), before_stop=None, basic=False):
+        fndir=FUJINET_DIR, dump_mem=False, until=None, fn_ini=(), before_stop=None, basic=False, disk2=None, each_stop=()):
     """fn_ini: more lines for FujiNet-PC's fnconfig.ini (e.g. a [Printer1] section); before_stop(web_url): called
     while FujiNet-PC still runs, after atari800 has quit (e.g. to fetch its printer's output); basic: the XL/XE's
-    BASIC there (atari800 -basic; it's switched off, as with OPTION held at power-up, either way)"""
+    BASIC there (atari800 -basic; it's switched off, as with OPTION held at power-up, either way); disk2: a disk for
+    FujiNet-PC's D2: (written back too); each_stop: monitor commands after every stop (e.g. HISTORY, to see what
+    led to a BPC set in extra_cmds)"""
     with tempfile.TemporaryDirectory() as tmp:
-        fn = start_fujinet(tmp, disk, hsio, instance, fndir, fn_ini) if fujinet else None
+        fn = start_fujinet(tmp, disk, hsio, instance, fndir, fn_ini, disk2) if fujinet else None
         cfg = os.path.join(tmp, "atari800.cfg")
         src = os.path.expanduser("~/.atari800.cfg")
         lines = open(src).read().splitlines() if os.path.exists(src) else []
@@ -136,7 +146,7 @@ def run(disk, at, out, lbl=None, fps=50, extra_cmds=None, timeout=900, fujinet=F
             target = int(sec * fps)
             while frame < target:
                 frame += 1
-                cmds += ["BLINE 200", "CONT", "BLINE 100", "CONT"]    # alternate, so that each stops once a frame
+                cmds += ["BLINE 200", "CONT", *each_stop, "BLINE 100", "CONT", *each_stop]  # each stops once a frame
                 for c in extra.get(frame, []):
                     cmds.append(c)
             if dump_mem:
@@ -164,7 +174,7 @@ def run(disk, at, out, lbl=None, fps=50, extra_cmds=None, timeout=900, fujinet=F
                             before_stop(f"http://127.0.0.1:{8000 + instance}")
                         except Exception as e:    # the screens and the disk are still wanted
                             print(f"before_stop: {e}", file=sys.stderr)
-                    stop_fujinet(fn, tmp, disk)
+                    stop_fujinet(fn, tmp, disk, disk2)
                     shutil.copy(os.path.join(tmp, "fujinet.log"), f"{out}-fujinet.log")
         made = []
         if dump_mem:
@@ -180,7 +190,7 @@ def run(disk, at, out, lbl=None, fps=50, extra_cmds=None, timeout=900, fujinet=F
             else:
                 print(f"no screen at {sec}s (GEOS not running?)", file=sys.stderr)
         log = open(os.path.join(tmp, "atari800.log"), "rb").read()
-        open(f"{out}-atari800.log", "wb").write(log[-200000:])
+        open(f"{out}-atari800.log", "wb").write(log if each_stop else log[-200000:])
         lines = log.decode("latin-1").splitlines()
         shows = [lines[i + 1] for i, ln in enumerate(lines[:-1]) if ln.strip() == "> SHOW"]
         for (sec, _), ln in zip(dumps, shows):

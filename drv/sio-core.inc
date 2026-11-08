@@ -10,6 +10,18 @@
 ; printers...) through the same code, at the same (high) speed and with the same speed recovery, see
 ; drv/sio-call.inc for the entry point.
 
+; the disk drive's SIO device: D<SIO_UNIT>:, or with two drives (SIO_TWO_DRIVES) the one of GEOS's curDrive (8, 9)
+.macro SioDiskDevice
+.ifdef SIO_TWO_DRIVES
+		LDA curDrive
+		CLC
+		ADC #SIO_DEVICE-8
+		STA sioDevice
+.else
+		LoadB sioDevice, SIO_DEVICE
+.endif
+.endmacro
+
 ;---------------------------------------
 _ReadLink:
 __ReadBlock:	LDY #0
@@ -32,7 +44,7 @@ SioBlock:	STY sioVerify
 		STA sioCommand
 		JSR SioSector
 		bnex @end
-		LoadB sioDevice, SIO_DEVICE
+		SioDiskDevice
 		LDX #SIO_DIR_READ
 		LDA sioCommand
 		CMP #SIO_CMD_PUT
@@ -89,7 +101,7 @@ SioHighSpeed:	LDY #SIO_STATE_LEN-1
 		BPL :-
 		PushW r4
 		LoadW r4, sioReply
-		LoadB sioDevice, SIO_DEVICE
+		SioDiskDevice
 		LoadB sioCommand, SIO_CMD_HSINDEX
 		LoadB sioVerify, 0
 		LoadB sioDir, SIO_DIR_READ

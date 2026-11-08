@@ -22,9 +22,11 @@
 ;	OFF_BIG_VOLID	random volume ID (word), with the serial tells if the BAM in memory is current
 ; (1,1) - first directory block, (1,2).. - BAM blocks: 32 bytes per track, bit set - block free,
 ;	  sector s of track t is bit s&7 of byte (t-1)*32+s/8
-; the whole BAM is kept in expanded RAM (bank 1, $4000-$5FDF): read when the disk's dirHead doesn't match
-; the BAM in memory, changed blocks written by PutDirHead; GetDirHead reloads changed blocks (so as
+; the whole BAM is kept in expanded RAM (bank 1 from $4000, 32 bytes per track): read when the disk's dirHead
+; doesn't match the BAM in memory, changed blocks written by PutDirHead; GetDirHead reloads changed blocks (so as
 ; on a 1541 changes not followed by PutDirHead are dropped)
+; two drives (SIO_TWO_DRIVES, up to 128 tracks): GEOS's drive 8 is D<SIO_UNIT>:, 9 the next; each has its BAM in
+; the bank (8: $4000, 9: $5000) and its own bamValid/bamKey/bamDirty, swapped in by BamSlot
 ; use tools/mkfujiatr.py (tools/geosimg.py) to create a disk image
 
 ; XXX there is no check for write protection
@@ -49,7 +51,12 @@ BAM_SECTOR		= 2			; first BAM block on track 1
 BAM_BLOCKS		= (BIG_TRACKS+7)/8	; 8 tracks per BAM block
 BAM_BANK		= 1			; expanded RAM bank
 BAM_ADDR		= $4000			; where the BAM is in that bank
-BAM_END			= BAM_ADDR+BIG_TRACKS*32
+BAM_SIZE		= BIG_TRACKS*32
+; two drives (GEOS's 8 and 9: D<SIO_UNIT>: and the next) when each one's BAM fits in 4K of the bank (126 tracks):
+; the BAM of drive 8 at $4000, of drive 9 at $5000; with more tracks one drive
+.if BAM_SIZE <= $1000
+SIO_TWO_DRIVES		= 1
+.endif
 
 OFF_BIG_MAGIC		= OFF_TO_BAM		; "BIG1"
 OFF_BIG_TRACKS		= OFF_TO_BAM+4
@@ -83,7 +90,7 @@ RAM_DIR_SECT_HEAD	= 0
 .assert BIG_TRACKS >= 18, error, "volume too small"
 .assert SIO_FIRST_SECTOR+BIG_TRACKS*256 <= $10000, error, "volume past SIO sector 65535"
 .assert BAM_SECTOR+BAM_BLOCKS <= 255, error, "BAM too large"
-.assert SIO_UNIT >= 1 .and SIO_UNIT <= 8, error, "SIO_UNIT must be 1-8 (D1:-D8:)"
+.assert SIO_UNIT >= 1 .and SIO_UNIT <= 7, error, "SIO_UNIT must be 1-8 (D1:-D8:)"
 
 ;-------------------------------------------------
 _InitForIO:		.word __InitForIO		;9000
@@ -129,8 +136,12 @@ SIO_CALL_SIG:		.byte "SIOC"			;904e
 
 
 ;---------------------------------------
+; the directory always starts at (1,1), as a 1541's at (18,1): like GEOS's 1541 driver this doesn't take it from
+; curDirHead, which DESK TOP may not have read yet (copying to the other drive, it restores that drive's dirHead
+; from its own copy and looks for the file there before the copy reads the real one)
 _Get1stDirEntry:
-		MoveW curDirHead, r1			; get t&s from directory header
+		LoadB r1L, RAM_DIR_TRACK
+		LoadB r1H, RAM_DIR_SECT_HEAD+1
 		JSR ReadBuff
 		LoadW r5, diskBlkBuf+FRST_FILE_ENTRY
 		LoadB borderFlag, 0
@@ -210,13 +221,15 @@ SNF_Scan:	JSR bamLd
 		BNE :+
 		INC bamLd+2
 :		LDA bamLd+1
-		CMP #<BAM_END
+		CMP #<BAM_SIZE
 		BNE SNF_Scan
-		LDA bamLd+2
-		CMP #>BAM_END
+		LDA bamHi
+		CLC
+		ADC #>BAM_SIZE
+		CMP bamLd+2
 		BNE SNF_Scan
-		LoadB bamLd+1, <BAM_ADDR
-		LoadB bamLd+2, >BAM_ADDR
+		LoadB bamLd+1, 0
+		MoveB bamHi, bamLd+2
 		DEC bamPass
 		BNE SNF_Scan
 		JSR BamOff
@@ -234,7 +247,7 @@ SNF_Found:	STA bamTmp
 		; offset in BAM: track-1 = offset/32, sector = (offset%32)*8 + bit
 		LDA bamLd+2
 		SEC
-		SBC #>BAM_ADDR
+		SBC bamHi
 		ASL
 		ASL
 		ASL
@@ -314,7 +327,8 @@ __FindBAMBit:
 ;---------------------------------------
 ; point bamLd/bamSt at the BAM byte of block r6, its bit mask into r8H
 ; returns C=1 if r6 isn't on the disk, destroys A, X
-BamAddr:	LDA r6L
+BamAddr:	JSR BamSlot
+		LDA r6L
 		CMP #DIR_TRACK			; DESK TOP's directory track is track 1
 		BNE :+
 		LDA #1
@@ -328,7 +342,7 @@ BamAddr:	LDA r6L
 		LSR
 		LSR
 		CLC
-		ADC #>BAM_ADDR
+		ADC bamHi
 		STA bamLd+2
 		STA bamSt+2
 		PLA
@@ -365,7 +379,7 @@ bamSt:		STA BAM_ADDR
 ; mark the BAM block holding the byte bamLd points to as changed
 BamDirty:	LDA bamLd+2
 		SEC
-		SBC #>BAM_ADDR
+		SBC bamHi
 		PHA
 		AND #%00000111
 		TAX
@@ -402,7 +416,8 @@ BamOff:		MoveB bamPB, PIA_PORTB
 
 ;---------------------------------------
 ; after reading dirHead: make the BAM in memory match it, returns error code in X
-BamSync:	LDX #4				; a big volume, of this size?
+BamSync:	JSR BamSlot
+		LDX #4				; a big volume, of this size?
 :		LDA curDirHead+OFF_BIG_MAGIC,x
 		CMP BigMagic,x
 		BNE @notbig
@@ -453,7 +468,8 @@ BamSync:	LDX #4				; a big volume, of this size?
 		RTS
 
 ; changes are written into BAM blocks by PutDirHead, returns error code in X
-BamFlush:	BIT bamValid
+BamFlush:	JSR BamSlot
+		BIT bamValid
 		BPL @end
 		LDA #0
 		STA bamBlk
@@ -463,7 +479,6 @@ BamFlush:	BIT bamValid
 		BEQ :+
 		JSR BamWriteBlk
 		bnex @err
-		STX bamDirtyAny			; X=0
 		DEC bamTmp2
 :		INC bamBlk
 		LDA bamBlk
@@ -515,10 +530,10 @@ BamIOBlk:	STA @io+1
 		CLC
 		ADC #BAM_SECTOR
 		STA r1H
-		LoadB r4L, <BAM_ADDR
+		LoadB r4L, 0
 		LDA bamBlk
 		CLC
-		ADC #>BAM_ADDR
+		ADC bamHi
 		STA r4H
 		JSR BamOn
 @io:		JSR $ffff
@@ -527,6 +542,35 @@ BamIOBlk:	STA @io+1
 		RTS
 
 BigMagic:	.byte "BIG1", BIG_TRACKS		; OFF_BIG_MAGIC, OFF_BIG_TRACKS
+
+;---------------------------------------
+; make the BAM state and bamHi those of curDrive's; destroys A and X, keeps Y
+BamSlot:
+.ifdef SIO_TWO_DRIVES
+		LDA curDrive
+		CMP bamDrive
+		BEQ @end
+		STA bamDrive
+		LDX #BAM_STATE_LEN-1		; only two drives: swap the state with the other's
+:		LDA bamState,x
+		PHA
+		LDA bamOther,x
+		STA bamState,x
+		PLA
+		STA bamOther,x
+		DEX
+		BPL :-
+		LDA bamDrive			; 8: $40, 9: $50
+		AND #1
+		ASL
+		ASL
+		ASL
+		ASL
+		ORA #>BAM_ADDR
+		STA bamHi
+@end:
+.endif
+		RTS
 
 FBBBitTab:	.byte $01, $02, $04, $08
 		.byte $10, $20, $40, $80
@@ -797,10 +841,17 @@ borderFlag:	.res 1		; do we have border directory sector?
 tmpPS:		.res 1		; CPU flags after DoneWithIO
 
 
+bamState:
 bamValid:	.byte 0		; $ff - BAM of the volume bamKey is in the bank
 bamKey:		.res 4		; OFF_BIG_SERIAL and OFF_BIG_VOLID of that BAM
 bamDirty:	.res 4		; BAM blocks changed since PutDirHead, bit per block
-bamDirtyAny:	.res 1
+BAM_STATE_LEN	= * - bamState
+.ifdef SIO_TWO_DRIVES
+bamOther:	.byte 0		; the other drive's bamValid, bamKey, bamDirty
+		.res BAM_STATE_LEN-1
+bamDrive:	.byte 8		; whose BAM state is above
+.endif
+bamHi:		.byte >BAM_ADDR	; where that drive's BAM is in the bank (high byte)
 bamBlk:		.res 1		; BAM block being read/written
 bamPass:	.res 1
 bamTmp:		.res 1
