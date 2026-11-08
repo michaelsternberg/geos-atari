@@ -58,7 +58,17 @@
 
 ASSERT_NOT_IN_BANK0
 
+OS_SDMCTL	= $022f			; the OS's shadows of DMACTL and COLBK, copied by its vertical blank
+OS_COLOR4	= $02c8
+
 RamLoaderInit:
+	; a black screen while the rest loads: the OS's text screen (its memory at the top of RAM) would show GEOS's
+	; code arriving there; GEOS sets up its own display when it starts (hw1b.s), without the OS
+	lda #0
+	sta OS_SDMCTL
+	sta ANTIC_DMACTL
+	sta OS_COLOR4
+	sta GTIA_COLBK
 	; remember
 	MoveB PIA_PORTB, atari_pia_portb
 

@@ -24,6 +24,10 @@ Weather and the GEOS Store, and the server they talk to.
 It's a MyDOS disk because on a disk this big MyPicoDOS reads sector links as 16 bits: a DOS 2 disk's file numbers
 in them would end GEOS.XEX early.
 
+Booting, MyPicoDOS shows its screen for a moment; then GEOS.XEX's first part (the loader, kernal/hw/ramloader.s.in)
+turns the screen off (black) while the rest loads, so the OS's text screen doesn't show GEOS's code arriving in its
+memory, and GEOS turns its own display on when it starts.
+
 The GEOS volume (`drv/siodrv-big-atari.s`, `tools/geosimg.py`): 126 tracks of 256 blocks (`BIG_TRACKS`), block
 (t,s) at sector 369+(t-1)*256+s (`SIO_FIRST_SECTOR`). To DESK TOP it's a 1541 whose directory is on track 18; the
 driver maps track 18 to track 1, so track 18's own blocks are never used. (1,0) is the disk header, (1,1) the first
