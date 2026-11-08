@@ -14,6 +14,7 @@
 .import _EnablSprite
 .import _PosSprite
 .import curYSize
+.import curYPos0
 
 .global __PromptOn
 .global __PromptOff
@@ -64,6 +65,10 @@ __InitTextPrompt:
 
 	; remember Y size
 	sty curYSize+1
+	; and that player 1 is blank now: PosSprite (PromptOn) draws it again only for another Y, so one that
+	; isn't (the prompt moved along its line: geoWrite's cursor left/right)
+	lda #$ff
+	sta curYPos0+1
 	; put as many bars as necessary
 	ldx #0
 	lda #%10000000

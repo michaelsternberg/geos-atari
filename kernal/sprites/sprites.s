@@ -41,6 +41,7 @@
 .global AtariPlayersInit
 ; conio5.s - InitTextPrompt
 .global curYSize
+.global curYPos0
 
 ; VIC equivalent of this is in const.inc
 GTIA_X_POS_OFF		= 48			; left edge of playfield for Players
