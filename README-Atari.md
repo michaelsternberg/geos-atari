@@ -138,6 +138,10 @@ Mapping of special keys:
 
 Cursor arrows work Atari style (CTRL+arrow key).
 
+A key held down repeats, as on the Atari OS: after half a second, then about 12 times a second (`KEY_REPEAT_DELAY`, `KEY_REPEAT_RATE` in `inc/atari.inc`, frames). The NMI handler does it: it takes a new key in the keyboard queue as the one to repeat, and repeats it while POKEY's SKSTAT says a key is still held.
+
+The SIO disk drivers switch the keyboard interrupt off during a transfer. POKEY still scans the keyboard, so a key pressed meanwhile is taken from KBCODE when the transfer ends (`SioRun` in `drv/sio-core.inc`). The same key pressed twice within one transfer counts once.
+
 Other console keys (START, SELECT) are not scanned and not used.
 
 ## Memory

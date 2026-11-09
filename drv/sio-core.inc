@@ -59,12 +59,18 @@ SioBlock:	STY sioVerify
 @end:		TXA
 		RTS
 
+.import _DoKeyboardScan
+
 ;---------------------------------------
 ; run the command set up in sioFrame/sioDir/sioLen/sioCmplRep/sioRetry/sioAnyErr with (r4) as buffer
 ; with interrupts off and NMIs only counting frames, switching to high speed first when the drive has one
 ; returns error code in X
 SioRun:		PHP
 		SEI
+		LDA POKEY_KBCODE		; the last key: one pressed during the transfer changes it
+		STA sioKey
+		LDA POKEY_IRQST			; a key whose interrupt waits (bit 6 0): the transfer's IRQEN cancels it
+		STA sioIrqSt
 		LDA interrupt_lock		; keep the caller's lock (BAM access in banked RAM holds it)
 		PHA
 		; NMI handler will only count frames, it's needed for timeouts
@@ -88,7 +94,25 @@ SioRun:		PHP
 @done:		JSR SioIdle
 		PLA
 		STA interrupt_lock
-		PLP
+		; the keyboard interrupt is off during a transfer, but POKEY goes on scanning (SKCTL keeps its bits 0-1):
+		; a key pressed meanwhile is in KBCODE. It's taken now, once, as its interrupt would have: also one whose
+		; interrupt was waiting when the transfer began (cancelled since), or came since SioIdle switched it on
+		; again (cancelled here, or it would come twice). The same key twice within one transfer is only one.
+		LDA POKEY_KBCODE
+		CMP sioKey
+		BNE @key
+		LDA sioIrqSt
+		AND POKEY_IRQST
+		AND #%01000000			; (the keyboard's bit: 0 in either, a key)
+		BNE @nokey
+@key:		LoadB POKEY_IRQEN, 0		; no waiting keyboard interrupt
+		LoadB POKEY_IRQEN, POKEY_IRQ_KBD
+		TXA
+		PHA
+		JSR _DoKeyboardScan
+		PLA
+		TAX
+@nokey:		PLP
 		RTS
 
 ;---------------------------------------

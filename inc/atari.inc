@@ -129,6 +129,10 @@ POKEY_SERIN	= POKEY+13	; serial port input
 POKEY_IRQST	= POKEY+14	; interrupt request status
 POKEY_SKSTAT	= POKEY+15	; serial port status
 
+; key repeat (frames): after the first, as the Atari OS does
+KEY_REPEAT_DELAY = 30
+KEY_REPEAT_RATE	= 4
+
 ; SIO bus (POKEY serial port + PIA control lines)
 
 PIA_CTL_IDLE	= %00111100	; PACTL: cassette motor off, PBCTL: SIO COMMAND line high (inactive)

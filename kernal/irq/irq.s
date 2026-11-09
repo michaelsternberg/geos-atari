@@ -15,6 +15,11 @@
 
 ; var.s
 .import KbdQueFlag
+.import KbdNextKey
+.import KbdDBncTab
+.import KbdScanHelp2
+.import KbdQueTail
+.import KbdQueue
 .import alarmWarnFlag
 .import tempIRQAcc
 .import interrupt_lock
@@ -34,6 +39,9 @@
 tmpPOKEY_IRQST:	.res 1				; shadow register
 
 .segment "irq"
+
+kbdLastTail = KbdDBncTab			; the queue's tail the key repeat saw last (C64 GEOS's debounce table,
+kbdRepCode = KbdDBncTab+1			; unused on the Atari), and the key's KBCODE
 
 	; IRQ only from the keyboard or BRK
 _IRQHandler:
@@ -96,11 +104,36 @@ _NMIHandler:
 	beq :+
 	dec dblClickCount
 
-:	ldy KbdQueFlag
-	beq :+
-	iny
-	beq :+
-	dec KbdQueFlag
+	; key repeat: a new key in the queue (its tail moved: the keyboard interrupt, or a key the SIO driver caught)
+	; is the one to repeat, after KEY_REPEAT_DELAY frames, then every KEY_REPEAT_RATE frames while POKEY says a
+	; key is still held. KbdQueFlag counts the frames; run out it wraps round to 255, and a key held then is one
+	; whose arrival set the count again.
+:	lda KbdQueTail
+	cmp kbdLastTail
+	beq @held
+	sta kbdLastTail
+	tax
+	dex				; the key before the tail
+	bpl :+
+	ldx #15
+:	lda KbdQueue,x
+	sta KbdNextKey
+	MoveB POKEY_KBCODE, kbdRepCode	; its key, which must still be the one held
+	LoadB KbdQueFlag, KEY_REPEAT_DELAY
+	bne @repdone			; (always)
+@held:	dec KbdQueFlag
+	bne @repdone
+	lda POKEY_SKSTAT
+	and #%00000100			; 0: a key is held
+	bne @repdone
+	lda POKEY_KBCODE		; that key (not another, pressed while it was let go, whose press got lost)
+	cmp kbdRepCode
+	bne @repdone
+	LoadB KbdQueFlag, KEY_REPEAT_RATE
+	lda KbdNextKey
+	jsr KbdScanHelp2
+	MoveB KbdQueTail, kbdLastTail	; (not a new key)
+@repdone:
 
 :;	jsr _DoKeyboardScan			; keyboard is processed only from keyboard IRQ
 	lda alarmWarnFlag

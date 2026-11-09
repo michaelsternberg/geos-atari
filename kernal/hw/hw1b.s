@@ -89,7 +89,6 @@ ASSERT_NOT_UNDER_ROM
 	ldx #0
 	stx KbdQueHead
 	stx KbdQueTail
-	dex
-	stx KbdQueFlag
+	stx KbdQueFlag			; no key to repeat
 
 	jmp ResetMseRegion

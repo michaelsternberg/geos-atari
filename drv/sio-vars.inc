@@ -24,3 +24,5 @@ sioJiffy:	.res 1		; last seen frame counter
 sioReply:	.res 1		; the answer to '?'
 sioDiv:		.byte POKEY_SIO_19200	; POKEY divisor in use: 19200 or sioHsDiv
 sioHsDiv:	.byte $ff	; the drive's high speed divisor, $ff before asking
+sioKey:		.res 1		; KBCODE when the transfer started
+sioIrqSt:	.res 1		; IRQST then (bit 6 0: a key's interrupt waiting)
