@@ -48,8 +48,21 @@ _EnterDeskTop:
 	jsr $9059			; the big SIO driver: drive B there or not, now (mounted in D2: after boot, or gone)
 .endif
 .endif
+TWO_DRIVES .set 0
+.ifdef BIG_TRACKS
+.if BIG_TRACKS*32 <= $1000
+TWO_DRIVES .set 1
+.endif
+.endif
+.if TWO_DRIVES
+	jsr @tryload			; the current drive, then drive A: a program on drive B quits to DESK TOP on A
+	lda #8				; (TempCurDrive isn't kept: nothing reads it)
+	jsr SetDevice
+	jsr @tryload
+.else
 	MoveB curDrive, TempCurDrive	; we search for desktop on all drives, so remeber the caller drive to restore it later
 	jsr @tryload
+.endif
 @tryagain:
 	LoadW r0, _EnterDT_DB
 	jsr DoDlgBox
@@ -62,7 +75,9 @@ _EnterDeskTop:
 :	sta r0L
 	LoadW r6, DeskTopName
 	jsr GetFile
-	bnex @tryagain
+	beqx :+
+	rts				; not on this drive
+:
 	; there was a check for version number here
 ;	lda fileHeader+O_GHFNAME+13
 ;	cmp #'1'
