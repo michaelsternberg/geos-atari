@@ -2,7 +2,7 @@
 ;
 ; At SIO_CALL_SIG ($904e) in the disk driver:
 ;	$904e	"SIOC"		signature, check it before calling
-;	$9052	.byte 2		version (1: no SioBack)
+;	$9052	.byte 3		version (1: no SioBack; 2: no $905c)
 ;	$9053	JMP SioCall	A/X - address (low/high) of a 12-byte device control block like the Atari OS DCB:
 ;		+0	device ID ($70 FujiNet, $71 N1:, $31 D1:...)
 ;		+1	unit, added to the device ID less 1 (use 1)
@@ -25,6 +25,14 @@
 ;			they print into the background screen and pass printer drivers its address in the C64's layout,
 ;			where a card row k (8 lines) is at $6000+320*k: the same 320 bytes are lines 8k-8k+7 here, from
 ;			$6038+320*k. r-registers are kept, interrupts are off during the copy
+;	$9059	JMP		the big SIO driver's drive B check (the kernal's; the other SIO driver: returns at once)
+;	$905c	.word		(version 3) the address of a byte the kernal sets to $ff when SIO's PROCEED line
+;			goes active: the PIA's CA1 interrupt, which a program enables (PIA_PACTL bit 0: $3d, GEOS's
+;			$3c with it) and disables again before it ends ($3c). FujiNet pulses PROCEED while a network
+;			channel has something to read (data waiting, the connection gone, an error), from 5 ms after
+;			the computer last asked for its status: so a program can ask only when it's set, clear it
+;			first. An edge during an SIO transfer (interrupts off) can be lost, the next one comes (every
+;			few tens of milliseconds while there's something to read)
 
 SioCall:	STA @get+1
 		STX @get+2

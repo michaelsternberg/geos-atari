@@ -40,6 +40,7 @@ BAMLength		= (SIO_BLOCKS+7)/8
 .import interrupt_lock
 .import jiffyCounter
 .import atari_banks
+.import sioProceed				; (irq.s: SIO call version 3)
 
 .segment "drive"
 
@@ -86,10 +87,13 @@ WriteBuff:		JMP _WriteBuff			;903f
 AllocateBlock:		JMP _AllocateBlock		;9048
 ReadLink:		JMP _ReadLink			;904b
 SIO_CALL_SIG:		.byte "SIOC"			;904e
-			.byte 2				;9052
+			.byte 3				;9052
 			JMP SioCall			;9053
 			JMP SioBack			;9056
+			JMP NoDriveB			;9059 (the big driver's drive B: none here)
+			.word sioProceed		;905c
 .assert SIO_CALL_SIG = $904e, error, "SIO call entry moved"
+NoDriveB:		RTS
 
 
 ;---------------------------------------

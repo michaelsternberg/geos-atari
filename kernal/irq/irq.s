@@ -42,8 +42,14 @@ tmpPOKEY_IRQST:	.res 1				; shadow register
 
 kbdLastTail = KbdDBncTab			; the queue's tail the key repeat saw last (C64 GEOS's debounce table,
 kbdRepCode = KbdDBncTab+1			; unused on the Atari), and the key's KBCODE
+; SIO's PROCEED line (the PIA's CA1) seen: $ff. A program that enables its interrupt (PIA_PACTL bit 0) clears it and
+; waits for it to be set again; FujiNet pulls PROCEED when a network channel has something for the computer. Its
+; address is in the SIO call area (drv/sio-call.inc, version 3). With the interrupt off (as GEOS leaves it) it's
+; never set: nothing else in GEOS uses PROCEED.
+sioProceed = KbdDBncTab+2
+.export sioProceed
 
-	; IRQ only from the keyboard or BRK
+	; IRQ from the keyboard or BRK; or PROCEED (the PIA's CA1), when a program has enabled it
 _IRQHandler:
 	cld
 	sta tempIRQAcc
@@ -72,6 +78,11 @@ _IRQHandler:
 	tay
 	pla
 	tax
+:	bit PIA_PACTL				; bit 7: CA1 (PROCEED) seen; an IRQ only when a program enabled it
+	bpl :+
+	lda PIA_PORTA				; acknowledged (reading PORTA clears bit 7)
+	lda #$ff
+	sta sioProceed
 :	lda tempIRQAcc
 	rti
 
