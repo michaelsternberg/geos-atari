@@ -20,7 +20,8 @@ Please read [main README.md](README.md) for that.
 
 An 8-bit Atari computer with at least 128K of RAM: 130XE or expanded 65XE as a minimum.
 
-By default GEOS runs from a RAM disk. There is also an experimental build with an SIO disk driver (D1:) instead of the RAM disk, see [SIO disk drive](#sio-disk-drive) below.
+There is only RAM disk available at the moment. I don't know how to handle communication with disk drives over SIO.
+Please help if you can!
 
 Right now expanded memory above 320K is not used. Except the very first bank, whole extra memory is meant to be used by RAM disk.
 
@@ -138,10 +139,6 @@ Mapping of special keys:
 
 Cursor arrows work Atari style (CTRL+arrow key).
 
-A key held down repeats, as on the Atari OS: after half a second, then about 12 times a second (`KEY_REPEAT_DELAY`, `KEY_REPEAT_RATE` in `inc/atari.inc`, frames). The NMI handler does it: it takes a new key in the keyboard queue as the one to repeat, and repeats it while POKEY's SKSTAT says a key is still held.
-
-The SIO disk drivers switch the keyboard interrupt off during a transfer. POKEY still scans the keyboard, so a key pressed meanwhile is taken from KBCODE when the transfer ends (`SioRun` in `drv/sio-core.inc`). The same key pressed twice within one transfer counts once.
-
 Other console keys (START, SELECT) are not scanned and not used.
 
 ## Memory
@@ -180,10 +177,7 @@ all the remaining areas are free to be used by files.
 
 ### Disk drives
 
-There is only one disk device available: either RAM drive (default) or SIO disk drive (`DRIVE=siodrv_atari`).
-
-A third, a ~8MB (up to ~16MB) SIO disk in one bootable image (`make bigsio`, `DRIVE=siodrv_big_atari`), is in
-[README-BigSIO.md](README-BigSIO.md); programs that use FujiNet's network on it are in geos-fujinet.
+There is only one disk device available: RAM drive.
 
 A disk driver for SIO devices may use the hardware directly or via ROM code. There are functions *InitForIO* and *DoneForIO* that in GEOS64/128 prepare
 the system for using ROM routines for I/O. GEOS doesn't touch memory in $0200-$03ff. Some of zero-page registers are used by the system, but they can be easily preserved.
@@ -249,53 +243,3 @@ uses optimizer to put GEOS Kernal code into all available gaps as neatly as poss
 just under $FE80 (input driver) address.
 
 [GeoWrite](https://github.com/ytmytm/geowrite-atari) can be rebuilt by checking out `atari` branch and issuing `make` followed by `make cvt`.
-
-### SIO disk drive
-
-`drv/siodrv-atari.s` is a disk driver for a double density (256 bytes per sector) disk drive or disk image on the SIO bus: XF551, 1050 with a double density upgrade,
-SIO2PC/RespeQt, SIO2SD or FujiNet. It talks to POKEY directly with polling - OS ROM is not used because GEOS Kernal lives under it.
-
-Build it with:
-
-```
-make SYSTEM=atari130 DRIVE=siodrv_atari
-```
-
-This creates `build/atari_130_sio/GEOS_ATARI_130XE_SIO.XEX` and a GEOS disk image `build/atari_130_sio/GEOS_SIO.ATR` with files from `ramdisk/cvt-128k`.
-Attach the ATR as D1: and run the XEX. DeskTop is loaded from D1:.
-
-The ATR has to be prepared on a PC with `tools/mkramdisk.py --atr <blocks>` - formatting from DeskTop doesn't work.
-The size of the disk is fixed at build time with `SIO_BLOCKS` (default 717 for a 180K disk, 1120 maximum), the driver and the image must agree.
-For example a 280K image (only for SIO2PC/FujiNet etc.) with all the files from 320K RAM disk:
-
-```
-make SYSTEM=atari320 DRIVE=siodrv_atari SIO_BLOCKS=1120 ATR_CVT=ramdisk/cvt-320k
-```
-
-`SIO_UNIT=n` makes GEOS use drive Dn: instead of D1:. Builds with non-default `SIO_BLOCKS` or `SIO_UNIT` go to their own
-directories, e.g. `build/atari_130_sio_d2_1120`.
-
-`tools/mkhwkit.sh` builds a kit for testing on real hardware (FujiNet, XF551) in `build/hwkit`: a bootable MyPicoDos disk with GEOS
-and a sector copier (`tools/geoscopy`) for writing GEOS disk images to real floppies. See `tools/hwkit-README.txt`.
-
-When loading the XEX on real hardware BASIC must be off (hold OPTION while booting).
-
-Disk layout:
-
-- sectors 1-3 (128 byte boot sectors) are not used
-- GEOS block (track, sector) is SIO sector `(track-1)*128+sector+4`, track 18 is mapped to track 1 just like on RAM drive
-- BAM is stored in the disk header (1,0), so the disk can't be larger than 1120 blocks
-
-Limitations:
-
-- only one drive (D1:, or another one with `SIO_UNIT`), no RAM disk at the same time
-- no single/enhanced density (128 byte sectors) support
-- no write protection detection, writing to a protected disk just fails with a generic error
-
-High speed SIO: the first transfer asks the drive for its high speed with command `?` at 19200 (as FujiNet and the
-Happy and US Doubler drives answer) and then uses the POKEY divisor it gives; a drive that doesn't answer stays at 19200.
-FujiNet switches the whole bus to the high speed after answering `?`, and back after two command frames it can't read,
-so a command frame without an answer is sent again at the other speed, and back at 19200 the driver asks `?` again.
-With FujiNet-PC at HSIO index 3 on atari800 a 15K application loads in 4.3 s instead of 13.4 s.
-
-To test in an emulator make sure that the SIO patch is disabled (e.g. `atari800 -nopatch`) - otherwise POKEY level code is not used.
