@@ -627,7 +627,8 @@ __GetFreeDirBlk:
 		LDX r10L
 		INX
 		STX r6L
-		MoveW curDirHead, r1			; get t&s from directory header
+		LoadB r1L, RAM_DIR_TRACK		; the first directory block, (1,1), as Get1stDirEntry: not
+		LoadB r1H, RAM_DIR_SECT_HEAD+1		; curDirHead's link (a wrong one on a disk read track 0)
 GFDirBlk0:	JSR ReadBuff
 GFDirBlk1:	bnex GFDirBlk5
 		DEC r6L
