@@ -227,22 +227,32 @@ _PosSpriteDo:
 	lda curYSize,y			; how many rows in sprite? (relevant for text cursor)
 	sta tmpYSize
 
-	; clear at old Y position. At the same Y draw again once 8 frames have gone by: the players share their memory
-	; with the C64's colour matrix, which programs such as DeskTop write to. The mouse pointer, drawn through
-	; ProcessMouse each frame, is mended within 8 frames (every frame would cost ~3% of the CPU). During SIO
-	; transfers the NMI only counts frames: the SIO drivers mend it after each (SioMendPointer, drv/sio-core.inc).
-	lda curYPos0,y			; is current Y pos the same as old Y pos?
-	cmp r5L
-	bne @clear
+	; Once 8 frames have gone by, the player's whole buffer cleared and the player drawn again: the players share
+	; their memory with the C64's colour matrix, which programs such as DeskTop write to, anywhere in it (dots in the
+	; pointer's column above or below it, or a broken pointer). The mouse pointer, drawn through ProcessMouse each
+	; frame, in the vertical blank, is clean within 8 frames, moving or not, for ~1% of the CPU. Otherwise a move
+	; clears the old rows only. During SIO transfers the NMI only counts frames: the SIO drivers mend the pointer
+	; after each (SioMendPointer, drv/sio-core.inc).
 	lda jiffyCounter
 	tax
 	sec
 	sbc drawnAt
 	cmp #8
-	bcc @sameYPos			; skip and save time: X only
+	bcc @moved
 	stx drawnAt
-	bcs @draw			; (always)
-@clear:	addv GTIA_Y_POS_OFF		; Player offset to top of the screen
+@whole:	lda #0
+	tay
+:	sta (r6),y			; the whole buffer
+	iny
+	bne :-
+	beq @draw			; (always)
+
+@moved:	lda curYPos0,y			; is current Y pos the same as old Y pos?
+	cmp r5L
+	beq @sameYPos			; skip and save time: X only
+	cpy #0
+	bne @whole			; not the pointer (DeskTop's dragged icon, the text prompt): moved, all of it
+	addv GTIA_Y_POS_OFF		; Player offset to top of the screen
 	tay
 
 	ldx #0
