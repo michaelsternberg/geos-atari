@@ -92,6 +92,7 @@ SioRun:		PHP
 @again:		DEC sioRetry
 		BNE @retry
 @done:		JSR SioIdle
+		JSR SioMendPointer		; (while the NMI only counts frames: it moves the pointer, not in the middle)
 		PLA
 		STA interrupt_lock
 		; the keyboard interrupt is off during a transfer, but POKEY goes on scanning (SKCTL keeps its bits 0-1):
@@ -114,6 +115,36 @@ SioRun:		PHP
 		TAX
 @nokey:		PLP
 		RTS
+
+;---------------------------------------
+; the mouse pointer drawn again where it is, when it's shown. The players' memory is the C64's colour matrix,
+; which DeskTop clears or colours while it reads a page's icons, one transfer after another; the NMI, which mends
+; the pointer (PosSprite), only counts frames during a transfer. Called before interrupt_lock is put back: an NMI
+; moving the pointer in the middle of the copy would leave its rest at the old place, a second pointer. X, Y kept
+.import curEnable, curYPos0, Player0Data, spr0pic, GTIA_Y_POS_OFF
+SioMendPointer:	LDA curEnable			; player 0's
+		BEQ @rts
+		TXA
+		PHA
+		TYA
+		PHA
+		LDA curYPos0
+		CLC
+		ADC #<GTIA_Y_POS_OFF
+		TAX
+		LDY #0
+:		LDA spr0pic,Y			; (DrawSprite's column of the pointer's picture)
+		STA Player0Data,X
+		INX
+		BEQ :+				; the end of the player's memory
+		INY
+		CPY #21
+		BNE :-
+:		PLA
+		TAY
+		PLA
+		TAX
+@rts:		RTS
 
 ;---------------------------------------
 ; ask the drive for its high speed ('?'), set sioHsDiv and sioDiv to it, or to 19200 without one

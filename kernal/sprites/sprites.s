@@ -38,14 +38,18 @@
 
 ; start.s
 .import InitMsePic
+.import jiffyCounter
 .global AtariPlayersInit
 ; conio5.s - InitTextPrompt
 .global curYSize
 .global curYPos0
+.global curEnable
+.export spr0pic				; (the SIO drivers mend the pointer after a transfer: drv/sio-core.inc)
 
 ; VIC equivalent of this is in const.inc
 GTIA_X_POS_OFF		= 48			; left edge of playfield for Players
 GTIA_Y_POS_OFF		= 24+8			; top edge of playfield (8+24 blank lines from displaylist)
+.export GTIA_Y_POS_OFF
 
 
 ; like for VDC engine - Y pos of currently drawn sprite
@@ -56,7 +60,7 @@ curXPos0H:	.res 4
 curEnable:	.res 4	; bytes not bits for faster access
 curYSize:	.res 4	; needed for tall text cursor only
 tmpYSize:	.res 1	; to save on push/pop
-tmpYPos:	.res 1	; to save on push/pop
+drawnAt:	.res 1	; jiffyCounter when a player was last drawn again where it was (PosSprite)
 
 ; sprite gfx data based on PMBASE
 PLAYER0_OFFS = $0400
@@ -220,16 +224,25 @@ _PosSpriteDo:
 	sta r6H
 	LoadB r6L, 0			; r6 = vector to start of sprite buffer
 
-	; clear at old Y position
-	lda curYPos0,y			; is current Y pos the same as old Y pos?
-	cmp r5L
-	beq @sameYPos			; skip and save time if Y pos didn't change
-	tax
 	lda curYSize,y			; how many rows in sprite? (relevant for text cursor)
 	sta tmpYSize
 
-	txa				; current Y pos
-	addv GTIA_Y_POS_OFF		; Player offset to top of the screen
+	; clear at old Y position. At the same Y draw again once 8 frames have gone by: the players share their memory
+	; with the C64's colour matrix, which programs such as DeskTop write to. The mouse pointer, drawn through
+	; ProcessMouse each frame, is mended within 8 frames (every frame would cost ~3% of the CPU). During SIO
+	; transfers the NMI only counts frames: the SIO drivers mend it after each (SioMendPointer, drv/sio-core.inc).
+	lda curYPos0,y			; is current Y pos the same as old Y pos?
+	cmp r5L
+	bne @clear
+	lda jiffyCounter
+	tax
+	sec
+	sbc drawnAt
+	cmp #8
+	bcc @sameYPos			; skip and save time: X only
+	stx drawnAt
+	bcs @draw			; (always)
+@clear:	addv GTIA_Y_POS_OFF		; Player offset to top of the screen
 	tay
 
 	ldx #0
@@ -241,7 +254,8 @@ _PosSpriteDo:
 	cpx tmpYSize			; up to 64 lines
 	bne :-
 
-:	ldy r3L
+:
+@draw:	ldy r3L
 	lda r5L
 	sta curYPos0,y			; shadow new position
 	addv GTIA_Y_POS_OFF		; Player offset to top of the screen
@@ -354,6 +368,8 @@ _DisablSprite:
 
 	lda #0
 	sta curEnable,x
+	sta GTIA_HPOSP0,x		; off the screen: a hidden player's memory holds colour matrix bytes (DeskTop's
+					; icon dragged to the wastebasket left them as dots where it was let go)
 	lda curYSize,x
 	sta tmpYSize
 

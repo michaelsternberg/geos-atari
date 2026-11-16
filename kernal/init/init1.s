@@ -26,10 +26,19 @@ ASSERT_NOT_UNDER_ROM
 _InitMachine:
 	jsr _DoFirstInitIO
 InitGEOEnv:
-	; clear all sprite data
-	LoadB r2L, 0
-	LoadW r1, Player0Data
-	LoadW r0, $0400
+	; clear all sprite data; mouseOn (which InitRamTab clears) off first: the NMI's ProcessMouse draws the pointer
+	; and switches it on while it's set, and one between the fill's first page (the pointer's picture) and its last
+	; (the sprites' variables, curEnable) would leave a picture there that nothing knows of: a second pointer
+	lda #0
+	sta r2L				; fill with 0
+	sta mouseOn
+	sta r1L				; r1 = Player0Data (on a page)
+	sta r0L				; r0 = $0400
+	lda #>Player0Data
+	sta r1H
+	lda #>$0400
+	sta r0H
 	jsr _FillRam
+.assert <Player0Data = 0, error, "Player0Data must start on a page"
 	LoadW r0, InitRamTab
 	jmp _InitRam
