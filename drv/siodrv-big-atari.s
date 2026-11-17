@@ -22,6 +22,8 @@
 ;	OFF_BIG_VOLID	random volume ID (word), with the serial tells if the BAM in memory is current
 ; (1,1) - first directory block, (1,2).. - BAM blocks: 32 bytes per track, bit set - block free,
 ;	  sector s of track t is bit s&7 of byte (t-1)*32+s/8
+; track 1 is the directory track, as track 18 on a 1541: the header, BAM, directory and border blocks; files from
+;	  track 2 (SetNextFree)
 ; the whole BAM is kept in expanded RAM (bank 1 from $4000, 32 bytes per track): read when the disk's dirHead
 ; doesn't match the BAM in memory, changed blocks written by PutDirHead; GetDirHead reloads changed blocks (so as
 ; on a 1541 changes not followed by PutDirHead are dropped)
@@ -209,10 +211,19 @@ __CalcBlksFree:
 
 ;---------------------------------------
 ; r3 - where to start looking, returns the allocated block in r3 (and r6), error code in X
+; Track 1 is the directory track, as track 18 on a 1541 (and DESK TOP writes a directory block it changed to (18,s),
+; that is (1,s), wherever the chain has it): from track 18 a block of track 1, for the directory; files never there.
 __SetNextFree:	MoveW r3, r6
-		JSR BamAddr
-		BCC :+
-		LoadB r6L, 1			; not on the disk: from the start
+		LDA r6L
+		CMP #DIR_TRACK
+		BNE :+
+		JMP SNF_Dir
+:		JSR BamAddr
+		BCS :+				; not on the disk: from the start
+		LDA r6L
+		CMP #2
+		BCS :++
+:		LoadB r6L, 2			; (files from track 2)
 		LoadB r6H, 0
 :		JSR __FindBAMBit
 		BNE SNF_Alloc			; that one is free
@@ -231,7 +242,7 @@ SNF_Scan:	JSR bamLd
 		ADC #>BAM_SIZE
 		CMP bamLd+2
 		BNE SNF_Scan
-		LoadB bamLd+1, 0
+		LoadB bamLd+1, 32		; (track 2)
 		MoveB bamHi, bamLd+2
 		DEC bamPass
 		BNE SNF_Scan
@@ -290,6 +301,14 @@ _AllocateBlock:	JSR __FindBAMBit
 		LDX #0
 		RTS
 AlloBlk1:	LDX #BAD_BAM
+		RTS
+SNF_Dir:	LoadB r6L, 1			; the directory track: the first free block of track 1
+		LoadB r6H, 0
+:		JSR __FindBAMBit
+		BNE SNF_Alloc
+		INC r6H
+		BNE :-
+		LDX #FULL_DIRECTORY
 		RTS
 
 ;---------------------------------------
@@ -663,7 +682,7 @@ GFDirBlk5:	PopW r2
 ;---------------------------------------
 _AddDirBlock:
 		PushW r6
-		LoadB r3L, 1			; start from start of the disk
+		LoadB r3L, DIR_TRACK		; a block of the directory track
 		LoadB r3H, 0
 		JSR SetNextFree
 		bnex @end			; error
@@ -749,7 +768,7 @@ __SetGEOSDisk:				; not necessary, but keep it for reference
 		ora r4H
 		beq @end		; no space left for off-page (border) dir
 
-		LoadB r3L, 1		; start search at (1,0)
+		LoadB r3L, DIR_TRACK	; the border block on the directory track
 		LoadB r3H, 0
 		jsr SetNextFree
 		bnex @end

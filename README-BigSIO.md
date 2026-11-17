@@ -31,8 +31,11 @@ memory, and GEOS turns its own display on when it starts.
 The GEOS volume (`drv/siodrv-big-atari.s`, `tools/geosimg.py`): 126 tracks of 256 blocks (`BIG_TRACKS`), block
 (t,s) at sector 369+(t-1)*256+s (`SIO_FIRST_SECTOR`). To DESK TOP it's a 1541 whose directory is on track 18; the
 driver maps track 18 to track 1, so track 18's own blocks are never used. (1,0) is the disk header, (1,1) the first
-directory block, (1,2)-(1,17) the BAM (to (1,33) at 254 tracks): a bit per block, 32 bytes per track. In place of
-the 1541's BAM the header holds "BIG1", the size, a free block count (CalcBlksFree returns it) and a serial
+directory block, (1,2)-(1,17) the BAM (to (1,33) at 254 tracks): a bit per block, 32 bytes per track. Track 1
+holds only these, the border block and more directory blocks, as track 18 on a 1541: files start on track 2.
+DESK TOP writes a directory page it changed to (18,s), whatever track the chain has it on, so a directory block
+elsewhere would be written over another block (`geosimg.py check` reports one). In place of the 1541's BAM the
+header holds "BIG1", the size, a free block count (CalcBlksFree returns it) and a serial
 number. The driver keeps the whole BAM (4K; 8K at 254 tracks) in the 130XE's bank 1, reads it when the header
 shows another disk or serial, and writes the changed BAM blocks in PutDirHead; GetDirHead drops changes that
 weren't written, as GEOS on a 1541 does. A disk of another size than the driver was built for isn't taken for a

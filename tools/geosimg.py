@@ -159,17 +159,26 @@ class Volume:
     def update_free(self):
         self.set_header_field(OFF_BIG_FREE, self.free_count())
 
-    # allocation, linear from a cursor (like SetNextFree)
+    # allocation, linear from a cursor (like SetNextFree); track 1 holds only the directory, as track 18 on a 1541:
+    # DESK TOP writes a directory block it changed to (18,s), that is (1,s), wherever the chain has it
     def alloc(self, start=None):
-        n = self.tracks * 256
-        i0 = self.cursor if start is None else start
+        n = self.tracks * 256 - 256
+        i0 = max(getattr(self, "cursor", 256) if start is None else start, 256) - 256
         for k in range(n):
-            i = (i0 + k) % n
+            i = 256 + (i0 + k) % n
             if self.is_free(i):
                 self.set_free(i, False)
                 self.cursor = i + 1
                 return self.ts(i)
         raise GeosError("disk full")
+
+    def alloc_dir(self):
+        """A block of track 1, the directory track (as the driver's SetNextFree from track 18)."""
+        for i in range(256):
+            if self.is_free(i):
+                self.set_free(i, False)
+                return self.ts(i)
+        raise GeosError("directory full")
 
     @classmethod
     def format(cls, tracks, name="GEOS", volid=0x1234, diskid=b"BS"):
@@ -204,8 +213,8 @@ class Volume:
         empty[1] = 0xff
         v.put(1, 1, empty)
         # border block
-        v.cursor = v.index(1, BAM_SECTOR + v.bam_blocks())
-        border = v.alloc()
+        border = v.alloc_dir()
+        v.cursor = 256
         v.put(*border, empty)
         h = v.header
         h[OFF_OP_TR_SC:OFF_OP_TR_SC + 2] = bytes(border)
@@ -255,8 +264,8 @@ class Volume:
                 off = FRST_FILE_ENTRY + k * ENTRY_SPACING
                 if b[off + OFF_CFILE_TYPE] == 0:
                     return ts, off
-        # add a directory block (as AddDirBlock: first free block from (1,0))
-        new = self.alloc(start=0)
+        # add a directory block (as AddDirBlock: the first free block of track 1)
+        new = self.alloc_dir()
         b = self.block(*last)
         b[0:2] = bytes(new)
         self.put(*last, b)
@@ -264,6 +273,84 @@ class Volume:
         empty[1] = 0xff
         self.put(*new, empty)
         return new, FRST_FILE_ENTRY
+
+    def border_block(self):
+        h = self.header
+        if h[OFF_GS_ID:OFF_GS_ID + len(GEOS_ID)] == GEOS_ID and h[OFF_OP_TR_SC] != 0:
+            return (h[OFF_OP_TR_SC], h[OFF_OP_TR_SC + 1])
+        return None
+
+    def slots(self, ts):
+        """The names in a directory block's 8 slots (None: empty)."""
+        b = self.block(*ts)
+        out = []
+        for k in range(8):
+            e = b[FRST_FILE_ENTRY + k * ENTRY_SPACING:FRST_FILE_ENTRY + k * ENTRY_SPACING + DIR_ENTRY_LEN]
+            out.append(entry_name(e) if e[OFF_CFILE_TYPE] else None)
+        return out
+
+    def layout(self):
+        """Where DESK TOP shows each file: {"pages": [8 names or None per page], "border": [8 ...]}. A directory
+        block is a page, its slots the places on it; empty pages at the end left out."""
+        pages = [self.slots(ts) for ts in self.dir_blocks()]
+        while len(pages) > 1 and not any(pages[-1]):
+            pages.pop()
+        bts = self.border_block()
+        return {"pages": pages, "border": self.slots(bts) if bts else []}
+
+    def arrange(self, pages, border=()):
+        """The files put where a layout() had them: by name, page by page and on the border; files it doesn't name
+        in the first free slots (as GEOS adds them), names not on the disk left empty. Empty directory blocks at the
+        end are freed."""
+        bts = self.border_block()
+        blocks = list(self.dir_blocks())
+        found = {}
+        for ts in blocks + ([bts] if bts else []):
+            b = self.block(*ts)
+            for k in range(8):
+                off = FRST_FILE_ENTRY + k * ENTRY_SPACING
+                e = bytes(b[off:off + DIR_ENTRY_LEN])
+                if e[OFF_CFILE_TYPE]:
+                    found.setdefault(entry_name(e), e)
+                b[off:off + DIR_ENTRY_LEN] = bytes(DIR_ENTRY_LEN)
+            self.put(*ts, b)
+        rest = list(found)
+
+        def place(ts, k, e):
+            b = self.block(*ts)
+            off = FRST_FILE_ENTRY + k * ENTRY_SPACING
+            b[off:off + DIR_ENTRY_LEN] = e
+            self.put(*ts, b)
+
+        pages = list(pages)[:18]                    # (DESK TOP shows 18 pages)
+        while len(blocks) < len(pages) and any(n in found for p in pages[len(blocks):] for n in p):
+            new = self.alloc_dir()
+            b = self.block(*blocks[-1])
+            b[0:2] = bytes(new)
+            self.put(*blocks[-1], b)
+            empty = bytearray(256)
+            empty[1] = 0xff
+            self.put(*new, empty)
+            blocks.append(new)
+        for ts, names in zip(blocks, pages):
+            for k, name in enumerate(list(names)[:8]):
+                if name in found:
+                    place(ts, k, found.pop(name))
+        if bts:
+            for k, name in enumerate(list(border)[:8]):
+                if name in found:
+                    place(bts, k, found.pop(name))
+        for name in rest:
+            if name in found:
+                ts, off = self.free_slot()
+                place(ts, (off - FRST_FILE_ENTRY) // ENTRY_SPACING, found.pop(name))
+        blocks = list(self.dir_blocks())
+        while len(blocks) > 1 and not any(self.slots(blocks[-1])):
+            self.set_free(self.index(*blocks.pop()), True)
+            b = self.block(*blocks[-1])
+            b[0:2] = b"\x00\xff"
+            self.put(*blocks[-1], b)
+        self.update_free()
 
     def find(self, name):
         for ts, off, e in self.entries():
@@ -431,10 +518,14 @@ class Volume:
         try:
             for ts in self.dir_blocks():
                 mark(self.index(*ts), "directory")
+                if ts[0] not in (1, DIR_TRACK):
+                    problems.append(f"directory block {ts} isn't on track 1: DESK TOP writes it to (1,{ts[1]})")
         except GeosError as ex:
             problems.append(str(ex))
         if h[OFF_OP_TR_SC]:
             mark(self.index(h[OFF_OP_TR_SC], h[OFF_OP_TR_SC + 1]), "border block")
+            if h[OFF_OP_TR_SC] not in (1, DIR_TRACK):
+                problems.append(f"border block {tuple(h[OFF_OP_TR_SC:OFF_OP_TR_SC + 2])} isn't on track 1")
         names = set()
         for ts, off, e in self.entries():
             name = entry_name(e)
