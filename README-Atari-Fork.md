@@ -172,7 +172,7 @@ System:
 |---|---|
 | `tools/mkramdisk.py --atr` | a GEOS disk image for the SIO disk driver |
 | `tools/mkbigatr.py` | a bootable big SIO disk image (MyPicoDOS 4.06 with dir2atr, then the GEOS volume) |
-| `tools/geosimg.py` | lists, checks, adds, deletes and extracts files of a big SIO disk image on the PC |
+| `tools/geosimg.py` | lists, checks, adds, deletes and extracts files of a big SIO disk image on the PC; repacks an older one |
 | `tools/mkhwkit.sh` | a test kit for real hardware (FujiNet, XF551) in `build/hwkit`; see `tools/hwkit-README.txt` |
 | `tools/geoscopy` | a sector copier that writes GEOS disk images to real floppies |
 | `tools/emushot.py` | runs atari800 headless, with FujiNet-PC over NetSIO if asked, and saves GEOS's screen |
@@ -190,5 +190,6 @@ driver's POKEY code isn't used.
   and md2geowrite (Markdown as geoWrite documents).
 - geoWrite for the Atari,
   [ytmytm/geowrite-atari](https://github.com/ytmytm/geowrite-atari): a fix for
-  printing pictures across the whole line is on a branch of a local clone, not
-  yet published.
+  printing pictures across the whole line is on the `fix/picture-print` branch
+  of [michaelsternberg/geowrite-atari](https://github.com/michaelsternberg/geowrite-atari/tree/fix/picture-print).
+  geos-fujinet's GEOS_FUJINET.ATR has the geoWrite built from it.

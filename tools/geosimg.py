@@ -560,6 +560,46 @@ class Volume:
         return problems
 
 
+def repack(vol):
+    """The volume made again: each file read out and added to a fresh one, where DESK TOP showed it (layout); the
+    disk's name and ID kept, its serial counted up (the driver reads the BAM again). For a disk from before track 1
+    was kept for the directory: its directory blocks then are all on track 1. Returns the new volume."""
+    other = [p for p in vol.check() if " isn't on track 1" not in p]
+    if other:
+        raise GeosError(f"{other[0]}{f' (and {len(other) - 1} more)' if len(other) > 1 else ''}: not repacked, "
+                        "the disk has other problems (geosimg.py check)")
+    old_h = vol.header
+    volid = struct.unpack_from("<H", old_h, OFF_BIG_VOLID)[0]
+    layout = vol.layout()
+    names = [entry_name(e) for _, _, e in vol.entries()]
+    cvts = {}
+    for name in names:
+        try:
+            cvts[name] = vol.to_cvt(name)
+        except (GeosError, IndexError) as e:
+            raise GeosError(f"{name} can't be read out ({e}): the disk is left as it is")
+    new = Volume.format(vol.tracks, "X", volid)
+    h = new.header
+    h[OFF_DISK_NAME:OFF_OP_TR_SC] = old_h[OFF_DISK_NAME:OFF_OP_TR_SC]       # name, disk ID
+    new.put(1, 0, h)
+    new.set_header_field(OFF_BIG_SERIAL, (vol.get_header_field(OFF_BIG_SERIAL) + 1) & 0xffff)
+    for name in names:
+        new.add_cvt(cvts[name])
+    new.arrange(layout["pages"], layout["border"])
+    def norm(cvt):          # (the entry's block addresses change)
+        cvt = bytearray(cvt)
+        cvt[OFF_DE_TR_SC:OFF_DE_TR_SC + 2] = cvt[OFF_GHDR_PTR:OFF_GHDR_PTR + 2] = b"\0\0"
+        return bytes(cvt)
+
+    for name in names:
+        if norm(new.to_cvt(name)) != norm(cvts[name]):
+            raise GeosError(f"{name} isn't the same after repacking: the disk is left as it is")
+    problems = new.check()
+    if problems:
+        raise GeosError(f"repacked disk: {problems[0]}: the disk is left as it is")
+    return new
+
+
 def entry_name(e):
     return bytes(e[OFF_FNAME:OFF_FNAME + 16]).split(b"\xa0")[0].decode("latin-1")
 
@@ -631,6 +671,9 @@ def main(argv=None):
     d = sub.add_parser("delete")
     d.add_argument("image")
     d.add_argument("name")
+    r = sub.add_parser("repack", help="make the volume again (directory on track 1), the files where they were")
+    r.add_argument("image")
+    r.add_argument("-o", "--out", help="write here instead (default: the image itself, the old one kept as .bak)")
     x = sub.add_parser("extract")
     x.add_argument("image")
     x.add_argument("name")
@@ -662,6 +705,16 @@ def main(argv=None):
         elif args.cmd == "delete":
             vol.delete(args.name)
             save_image(args.image, data, vol, args.first)
+        elif args.cmd == "repack":
+            new = repack(vol)
+            out = args.out or args.image
+            if not args.out:
+                bak = args.image + ".bak"
+                open(bak, "wb").write(data)
+                print(f"the old image: {bak}")
+            save_image(out, data, new, args.first)
+            print(f"{out}: repacked, {len(list(new.dir_blocks()))} directory blocks on track 1, "
+                  f"{sum(1 for _ in new.entries())} files, {new.free_count()} blocks free")
         elif args.cmd == "extract":
             open(args.out, "wb").write(vol.to_cvt(args.name))
     except GeosError as ex:

@@ -49,17 +49,20 @@ the driver maps track 18 to track 1, so track 18's own blocks are never used.
 only these, the border block and more directory blocks, as track 18 on a 1541:
 files start on track 2. DESK TOP writes a directory page it changed to (18,s),
 whatever track the chain has it on, so a directory block elsewhere would be
-written over another block (`geosimg.py check` reports one). In place of the
-1541's BAM the header holds "BIG1", the size, a free block count (CalcBlksFree
-returns it) and a serial number. The driver keeps the whole BAM (4K; 8K at 254
-tracks) in the 130XE's bank 1, reads it when the header shows another disk or
-serial, and writes the changed BAM blocks in PutDirHead; GetDirHead drops
-changes that weren't written, as GEOS on a 1541 does. A disk of another size
-than the driver was built for isn't taken for a big volume (geosimg.py reads the
-size from the header).
+written over another block (`geosimg.py check` reports one). A disk made before
+track 1 was kept for the directory (16 November 2026) can have such blocks:
+`geosimg.py repack` makes it again, with its directory on track 1 and its files
+where DESK TOP showed them (the old image kept as .bak). In place of the 1541's
+BAM the header holds "BIG1", the size, a free block count (CalcBlksFree returns
+it) and a serial number. The driver keeps the whole BAM (4K; 8K at 254 tracks)
+in the 130XE's bank 1, reads it when the header shows another disk or serial,
+and writes the changed BAM blocks in PutDirHead; GetDirHead drops changes that
+weren't written, as GEOS on a 1541 does. A disk of another size than the driver
+was built for isn't taken for a big volume (geosimg.py reads the size from the
+header).
 
     # the GEOS volume, on the PC
-    tools/geosimg.py list|check|add|delete|extract IMAGE.ATR ...
+    tools/geosimg.py list|check|add|delete|extract|repack IMAGE.ATR ...
     # a bootable disk
     tools/mkbigatr.py --xex GEOS_BIGSIO.XEX -o DISK.ATR FILE.CVT...
 
