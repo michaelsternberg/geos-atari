@@ -28,6 +28,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--hsio", type=int, default=3, help="FujiNet's HSIO index (-1: 19200)")
     p.add_argument("--seconds", type=int, default=900, help="at most this long (real time) for fstest to finish")
+    p.add_argument("--boot", type=float, default=40, help="seconds stepped a frame at a time while GEOS boots")
     p.add_argument("--keep", help="keep the disk and screens in this directory")
     args = p.parse_args()
 
@@ -57,7 +58,7 @@ def main():
                     "--name", "FSTEST", cvt] + others, check=True, stdout=subprocess.DEVNULL)
 
     shots = emushot.run(disk, [], os.path.join(work, "screen"), fujinet=True, hsio=args.hsio,
-                        timeout=args.seconds, until=done)
+                        timeout=args.seconds, until=done, boot=args.boot)
     print("screens:", " ".join(shots))
 
     data, vol = geosimg.load_image(disk)

@@ -115,7 +115,8 @@ def stop_fujinet(proc, tmp, disk, disk2=None):
 
 
 def run(disk, at, out, lbl=None, fps=50, extra_cmds=None, timeout=900, fujinet=False, hsio=-1, instance=7,
-        fndir=FUJINET_DIR, dump_mem=False, until=None, fn_ini=(), before_stop=None, basic=False, disk2=None, each_stop=()):
+        fndir=FUJINET_DIR, dump_mem=False, until=None, fn_ini=(), before_stop=None, basic=False, disk2=None, each_stop=(),
+        boot=0):
     """fn_ini: more lines for FujiNet-PC's fnconfig.ini (e.g. a [Printer1] section); before_stop(web_url): called
     while FujiNet-PC still runs, after atari800 has quit (e.g. to fetch its printer's output); basic: the XL/XE's
     BASIC there (atari800 -basic; it's switched off, as with OPTION held at power-up, either way); disk2: a disk for
@@ -134,8 +135,12 @@ def run(disk, at, out, lbl=None, fps=50, extra_cmds=None, timeout=900, fujinet=F
         extra = dict(extra_cmds or {})
         if until is not None:
             # no breaks until the program reaches `until` (breaking every frame upsets high speed SIO over
-            # NetSIO, FujiNet-PC keeps sending while the emulation stops), then one screen
-            cmds = [f"BPC {until:04X}", "CONT"]
+            # NetSIO, FujiNet-PC keeps sending while the emulation stops), then one screen. But the boot itself
+            # (MyPicoDOS loading GEOS) can stall when run freely from power-up: `boot` seconds a frame at a time first
+            cmds = ["BLINE 100"]
+            for _ in range(int(boot * fps)):
+                cmds += ["BLINE 200", "CONT", "BLINE 100", "CONT"]
+            cmds += ["BLINE 999", f"BPC {until:04X}", "CONT"]  # 999: a line never reached, no more breaks
             at = []
             path = os.path.join(tmp, "dump000.bin")
             cmds += ["SHOW", f"WRITE {SCREEN:04X} {SCREEN + LINES * BYTES - 1:04X} {path}"]
