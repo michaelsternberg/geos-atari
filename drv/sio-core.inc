@@ -52,6 +52,7 @@ SioBlock:	STY sioVerify
 		LDX #SIO_DIR_WRITE
 :		STX sioDir
 		LoadB sioLen, 0			; 256 bytes
+		LoadB sioPages, 0
 		LoadB sioCmplRep, 1
 		LoadB sioRetry, SIO_RETRIES
 		LoadB sioAnyErr, $ff		; a disk block can be transferred again after any error
@@ -161,6 +162,7 @@ SioHighSpeed:	LDY #SIO_STATE_LEN-1
 		LoadB sioVerify, 0
 		LoadB sioDir, SIO_DIR_READ
 		LoadB sioLen, 1
+		LoadB sioPages, 0
 		LoadB sioCmplRep, 1
 		LoadB sioRetry, SIO_RETRIES
 @retry:		JSR SioTransfer
@@ -240,11 +242,14 @@ SioTransfer:
 		JSR SioDelay
 		JSR SioSendStart
 		LDY #0
+		JSR SioFirst
 :		LDA (r4),y
 		JSR SioPutByte
 		INY
-		CPY sioLen
+		CPY sioEnd
 		BNE :-
+		JSR SioNext
+		BCC :-
 		LDA sioChksum
 		JSR SioPutByte
 		JSR SioSendEnd
@@ -270,6 +275,7 @@ SioReadData:	LDX #DAT_CHKSUM_ERR
 		STA sioChksum			; checksum covers only the data
 		STA sioMismatch
 		LDY #0
+		JSR SioFirst
 @loop:		LDA #SIO_TIMEOUT_BYTE
 		JSR SioGetByte
 		BCS @short
@@ -277,9 +283,11 @@ SioReadData:	LDX #DAT_CHKSUM_ERR
 		BMI @verify
 		STA (r4),y
 		INY
-		CPY sioLen
+		CPY sioEnd
 		BNE @loop
-		BEQ @chksum
+		JSR SioNext
+		BCC @loop
+		BCS @chksum
 @verify:	CMP (r4),y
 		BEQ :+
 		STX sioMismatch			; any nonzero value
@@ -308,8 +316,12 @@ SioReadData:	LDX #DAT_CHKSUM_ERR
 ; the others is the answer (FujiNet's replies differ in size between firmware versions), sioLen is set to it
 @short:		BIT sioAnyErr
 		BMI @end
+		LDA sioLeft			; (only in a long frame's first page)
+		CMP sioPages
+		BNE @end
 		CPY #2
 		BCC @end
+		LoadB sioPages, 0
 		DEY
 		STY sioLen			; the data, less the checksum byte
 		LDA #0				; checksum of the data
@@ -327,6 +339,27 @@ SioReadData:	LDX #DAT_CHKSUM_ERR
 		BNE @end
 		LDX #0
 		RTS
+
+;---------------------------------------
+; a data frame of sioPages full pages and sioLen bytes (0: 256) at (r4): sioEnd is where Y stops in its first page
+SioFirst:	MoveB sioPages, sioLeft
+		BNE :+
+		MoveB sioLen, sioEnd
+		RTS
+:		LoadB sioEnd, 0
+		RTS
+
+; Y reached sioEnd: C=1 at the end of the frame, otherwise r4 is on the next page (Y is 0), C=0. A destroyed.
+; r4 isn't put back: only SioCall's long frames move it, and SioCall keeps r4
+SioNext:	SEC
+		LDA sioLeft
+		BEQ @rts
+		INC r4+1
+		DEC sioLeft
+		BNE :+
+		MoveB sioLen, sioEnd
+:		CLC
+@rts:		RTS
 
 ;---------------------------------------
 ; wait for complete/error byte, sioCmplRep times SIO_TIMEOUT_CMPL frames (a drive may seek and retry,

@@ -2,7 +2,7 @@
 ;
 ; At SIO_CALL_SIG ($904e) in the disk driver:
 ;	$904e	"SIOC"		signature, check it before calling
-;	$9052	.byte 3		version (1: no SioBack; 2: no $905c)
+;	$9052	.byte 4		version (1: no SioBack; 2: no $905c; 3: frames of 256 bytes at most)
 ;	$9053	JMP SioCall	A/X - address (low/high) of a 12-byte device control block like the Atari OS DCB:
 ;		+0	device ID ($70 FujiNet, $71 N1:, $31 D1:...)
 ;		+1	unit, added to the device ID less 1 (use 1)
@@ -12,8 +12,9 @@
 ;		+4,+5	buffer
 ;		+6	timeout in seconds (rounded up to ~5s steps, at least ~5s)
 ;		+7	unused
-;		+8,+9	data frame length, 1-256; after reading: the bytes received (a shorter frame is accepted
-;			when its last byte is the checksum of the ones before it)
+;		+8,+9	data frame length, 1-65535 (version 4; 1-256 before); after reading: the bytes
+;			received (a shorter frame is accepted when its last byte is the checksum of the ones before
+;			it, and ends within the first 256 bytes)
 ;		+10,+11	aux1, aux2
 ;	returns status in A, GEOS error code in X (0 OK), Y destroyed
 ;	r4 is kept, interrupts are off and the mouse stops during the transfer
@@ -55,7 +56,12 @@ SioCall:	STA @get+1
 		LDA sioDcb+3
 		AND #SIO_DIR_READ|SIO_DIR_WRITE
 		STA sioDir
-		MoveB sioDcb+8, sioLen		; 256 is 0
+		LDA sioDcb+8			; length-1's high byte: the full pages before the last one
+		STA sioLen			; (the last page's bytes, 256 is 0)
+		CMP #1
+		LDA sioDcb+9
+		SBC #0
+		STA sioPages
 		LDA sioDcb+6			; seconds to ~5s periods: (s+4)/5, at least 1
 		CLC
 		ADC #4
@@ -96,6 +102,8 @@ SioCall:	STA @get+1
 		LDA #0
 		ROL
 		EOR #1
+		CLC
+		ADC sioPages
 		INY
 		JSR @put
 		PLA

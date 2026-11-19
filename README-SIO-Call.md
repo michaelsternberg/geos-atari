@@ -16,13 +16,13 @@ SIO, so check for it first.
 | Address | | |
 |---|---|---|
 | `$904E` | `"SIOC"` | the signature: check it before anything else |
-| `$9052` | `.byte 3` | the version: 1 SioCall, 2 and SioBack, 3 and the PROCEED byte |
+| `$9052` | `.byte 4` | the version: 1 SioCall, 2 and SioBack, 3 and the PROCEED byte, 4 and frames over 256 bytes |
 | `$9053` | `JMP SioCall` | a command to a device, from a 12-byte block like the Atari OS's DCB |
 | `$9056` | `JMP SioBack` | (version 2) copies to or from GEOS's background screen, for printer drivers |
 | `$9059` | `JMP DriveB` | the kernal's: the big driver looks at D2: for drive B (the other driver returns at once) |
 | `$905C` | `.word` | (version 3) the address of the byte the kernal sets when SIO's PROCEED line goes active |
 
-Programs using it: the FujiNet programs for GEOS (FConfig, WiFi Setup, News,
+Programs using it: the FujiNet programs for GEOS (FConfig, WiFi Setup, Headlines,
 Weather, the GEOS Store, the FujiNet Terminal) and FujiNet Epson, a printer
 driver, in [geos-fujinet](https://github.com/michaelsternberg/geos-fujinet); and
 the kernal itself, which sets GEOS's date and time from FujiNet's clock at
@@ -41,7 +41,7 @@ A/X: the address (low, high) of a 12-byte block:
 | +4,+5 | buffer | |
 | +6 | timeout | seconds (counted in steps of about 5 s, at least one) |
 | +7 | | unused |
-| +8,+9 | length | of the data frame, 1-256; after a read, the bytes received |
+| +8,+9 | length | of the data frame, 1-65535 (1-256 before version 4); after a read, the bytes received |
 | +10,+11 | aux1, aux2 | |
 
 Returns the status in A (and at +3), as the Atari OS has it:
@@ -62,7 +62,10 @@ it ends.
   an answer is sent again at the other speed.
 - **Short replies.** A data frame shorter than asked for is taken when its last
   byte is the checksum of the ones before it: FujiNet's replies differ in size
-  between firmware versions. +8,+9 say how many came.
+  between firmware versions. +8,+9 say how many came. In a frame over 256
+  bytes, only a reply that ends within the first 256 is taken.
+- **Long frames.** From version 4 a data frame can be longer than 256 bytes:
+  FujiNet's drive slots, for one, come and go as a single frame of 304 bytes.
 - **Retries.** A command the device may have run isn't sent again after an error
   in its data frame, so a write to a network channel doesn't go out twice.
 

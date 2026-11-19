@@ -7,7 +7,8 @@ sioCommand:	.res 1
 sioAux:		.res 2		; sector number (aux1/aux2)
 sioVerify:	.res 1		; $ff - compare data with (r4) instead of storing it
 sioDir:		.res 1		; SIO_DIR_READ, SIO_DIR_WRITE or 0 for no data frame
-sioLen:		.res 1		; bytes in the data frame, 0 for 256
+sioLen:		.res 1		; bytes in the data frame's last page, 0 for 256
+sioPages:	.res 1		; full pages before it (SioCall's frames over 256 bytes)
 sioCmplRep:	.res 1		; wait for complete this many times SIO_TIMEOUT_CMPL frames
 sioRetry:	.res 1		; remaining attempts
 sioAnyErr:	.res 1		; $ff - attempt again after any error, 0 - only when the command frame got no answer
@@ -26,3 +27,5 @@ sioDiv:		.byte POKEY_SIO_19200	; POKEY divisor in use: 19200 or sioHsDiv
 sioHsDiv:	.byte $ff	; the drive's high speed divisor, $ff before asking
 sioKey:		.res 1		; KBCODE when the transfer started
 sioIrqSt:	.res 1		; IRQST then (bit 6 0: a key's interrupt waiting)
+sioLeft:	.res 1		; pages left after this one, in a data frame
+sioEnd:		.res 1		; where Y stops in this page (0: 256)

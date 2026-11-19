@@ -132,7 +132,7 @@ WriteBuff:		JMP _WriteBuff			;903f
 AllocateBlock:		JMP _AllocateBlock		;9048
 ReadLink:		JMP _ReadLink			;904b
 SIO_CALL_SIG:		.byte "SIOC"			;904e
-			.byte 3				;9052
+			.byte 4				;9052
 			JMP SioCall			;9053
 			JMP SioBack			;9056
 			JMP DriveB			;9059
