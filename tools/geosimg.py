@@ -408,6 +408,15 @@ class Volume:
         return blocks[0], len(blocks)
 
     def add_cvt(self, cvt, replace=False):
+        """Adds a convert file; on an error (the disk full, ...) the volume is left as it was."""
+        saved = bytes(self.data)
+        try:
+            return self._add_cvt(cvt, replace)
+        except BaseException:
+            self.data[:] = saved
+            raise
+
+    def _add_cvt(self, cvt, replace):
         entry, header, kind, payload = parse_cvt(cvt)
         name = entry_name(entry)
         old = self.find(name)
